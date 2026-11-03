@@ -5,6 +5,7 @@ services:
   db:
     image: postgres:18
     restart: unless-stopped
+    mem_limit: 384m
     environment:
       POSTGRES_DB: devworld
       POSTGRES_USER: devworld
@@ -23,6 +24,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # На сервері 2 ГБ RAM і ще сусіди (PostgreSQL, раннер CI) — JVM бере 75% від цього ліміту.
+    mem_limit: 768m
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devworld
       SPRING_DATASOURCE_USERNAME: devworld
