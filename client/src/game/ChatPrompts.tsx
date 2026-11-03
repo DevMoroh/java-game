@@ -34,9 +34,9 @@ export function ChatPrompts({ client }: { client: GameClient }) {
       {nearby && (
         <div className="team-card">
           <span className="color-dot" style={{ background: nearby.color }} />
-          <span>Поруч {nearby.name}</span>
+          <span>{nearby.name} is nearby</span>
           <button className="primary" onClick={() => client.joinPlayer(nearby.id)}>
-            Приєднатися до чату
+            Join chat
           </button>
         </div>
       )}

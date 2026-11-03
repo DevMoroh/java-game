@@ -9,7 +9,7 @@ export function Leaderboard({ client }: { client: GameClient }) {
   const top = [...players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, TOP)
   return (
     <div className="panel leaderboard">
-      <strong>🏆 Лідери</strong>
+      <strong>🏆 Leaderboard</strong>
       <ol>
         {top.map((p) => (
           <li key={p.id} className={p.id === client.selfId ? 'self' : ''}>

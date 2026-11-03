@@ -22,8 +22,8 @@ export function HandshakePrompt({ client }: { client: GameClient }) {
     const offs = [
       client.on('handshakeOffer', (e) => {
         let text: string | null = null
-        if (e.to === client.selfId) text = `🤝 ${client.nameOf(e.from)} простягає руку — натисни H`
-        else if (e.from === client.selfId) text = `Чекаєш, поки ${client.nameOf(e.to)} потисне руку…`
+        if (e.to === client.selfId) text = `🤝 ${client.nameOf(e.from)} offers a handshake — press H`
+        else if (e.from === client.selfId) text = `Waiting for ${client.nameOf(e.to)} to shake your hand…`
         if (!text) return
         const next = { id: ++promptSeq, text, durationMs: e.expiresInMs }
         setPrompt(next)

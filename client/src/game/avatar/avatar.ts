@@ -57,7 +57,7 @@ export function buildAvatar(
   lightSkin: THREE.Texture,
 ): AvatarParts {
   const source = library.getObjectByName(gender === 'FEMALE' ? 'Female' : 'Male')
-  if (!source) throw new Error('characters.glb: немає тіла для ' + gender)
+  if (!source) throw new Error('characters.glb: no body for ' + gender)
   const root = cloneSkinned(source)
   root.position.set(0, 0, 0)
 
@@ -136,7 +136,7 @@ function rebind(
   const skeleton = new THREE.Skeleton(
     src.skeleton.bones.map((b) => {
       const bone = bones.get(canonical(b.name))
-      if (!bone) throw new Error(`Зачіска ${src.name}: немає кістки ${b.name} у тілі`)
+      if (!bone) throw new Error(`Hairstyle ${src.name}: body has no bone ${b.name}`)
       return bone
     }),
     src.skeleton.boneInverses,

@@ -12,22 +12,22 @@ export function PlayerPanel({ client }: { client: GameClient }) {
   return (
     <div className="panel team-panel">
       <div className="panel-row">
-        <span className="color-dot" style={{ background: self.color }} title="Колір твого кола" />
+        <span className="color-dot" style={{ background: self.color }} title="Your circle color" />
         <strong>⭐ {self.score}</strong>
-        <span className="muted"> очок</span>
+        <span className="muted"> points</span>
       </div>
       <StatusPicker client={client} status={self.status} />
       {self.group ? (
         <div className="panel-row">
           <span>
-            У чаті з {mates.length > 0 ? mates.map((m) => m.name).join(', ') : 'тими, хто зараз не в грі'}
+            Chatting with {mates.length > 0 ? mates.map((m) => m.name).join(', ') : 'players who are offline'}
           </span>
           <button className="link-button" onClick={() => client.leaveGroup()}>
-            Вийти з чату
+            Leave chat
           </button>
         </div>
       ) : (
-        <div className="panel-row muted">Загальний чат — підійди до когось, щоб поговорити окремо</div>
+        <div className="panel-row muted">General chat — walk up to someone to talk privately</div>
       )}
     </div>
   )

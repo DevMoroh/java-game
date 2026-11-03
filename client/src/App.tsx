@@ -77,19 +77,19 @@ function JoinScreen({ onJoin }: { onJoin: (name: string, gender: Gender) => void
     <div className="join">
       <form className="join-card" onSubmit={submit}>
         <h1>Dev World</h1>
-        <p className="muted">Заходь як гість і гуляй полем</p>
+        <p className="muted">Join as a guest and explore the field</p>
         <label>
-          Ім'я
+          Name
           <input value={name} maxLength={20} placeholder="Guest" autoFocus onChange={(e) => setName(e.target.value)} />
         </label>
         <div className="gender">
           {(['MALE', 'FEMALE'] as const).map((g) => (
             <button type="button" key={g} className={gender === g ? 'active' : ''} onClick={() => setGender(g)}>
-              {g === 'MALE' ? '👨 Чоловік' : '👩 Жінка'}
+              {g === 'MALE' ? '👨 Male' : '👩 Female'}
             </button>
           ))}
         </div>
-        <button type="submit" className="primary">Увійти в гру</button>
+        <button type="submit" className="primary">Join the game</button>
       </form>
     </div>
   )
@@ -104,9 +104,9 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
       <div className="hud-left">
         <div className="hud">
           <strong>Dev World</strong>
-          <span className="muted"> · онлайн: {players.length}</span>
-          <button className="link-button" onClick={onLeave} title="Вийти й зайти іншим персонажем">
-            Вийти
+          <span className="muted"> · online: {players.length}</span>
+          <button className="link-button" onClick={onLeave} title="Leave and join as a different character">
+            Leave
           </button>
         </div>
         <PlayerPanel client={client} />
@@ -117,30 +117,30 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
       <div className="bottom-left-stack">
         <ChatPanel client={client} />
         <div className="hud hint muted">
-          WASD / клік по траві — рух · пробіл — стрибок · H — привітатись · F — лящ · Enter — чат · колесо — зум
+          WASD / click on grass — move · Space — jump · H — handshake · F — slap · Enter — chat · wheel — zoom
         </div>
       </div>
       <HandshakePrompt client={client} />
       <div className="actions">
-        <ActionButton className="shake" title="Простягнути руку / потиснути простягнуту (H)" onClick={() => client.handshake()}>
-          🤝 Привітатись <kbd>H</kbd>
+        <ActionButton className="shake" title="Offer a handshake / accept an offered one (H)" onClick={() => client.handshake()}>
+          🤝 Handshake <kbd>H</kbd>
         </ActionButton>
-        <ActionButton className="slap" title="Дати ляща найближчому (F)" onClick={() => client.slap()}>
-          👋 Лящ <kbd>F</kbd>
+        <ActionButton className="slap" title="Slap the nearest player (F)" onClick={() => client.slap()}>
+          👋 Slap <kbd>F</kbd>
         </ActionButton>
       </div>
       {status !== 'online' && (
         <div className="overlay">
           <div className="join-card">
             {status === 'connecting' ? (
-              <p>Підключення…</p>
+              <p>Connecting…</p>
             ) : (
               <>
-                <p>З'єднання з сервером втрачено</p>
+                <p>Connection to the server was lost</p>
                 <button className="primary" onClick={onReconnect}>
-                  Підключитися знову
+                  Reconnect
                 </button>
-                <button onClick={onLeave}>Вийти</button>
+                <button onClick={onLeave}>Leave</button>
               </>
             )}
           </div>

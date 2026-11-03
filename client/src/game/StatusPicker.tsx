@@ -3,15 +3,15 @@ import type { GameClient } from './GameClient'
 
 /** Готові статуси; свій можна написати вручну. */
 const PRESETS = [
-  '🎧 Слухаю музику',
-  '😎 Чілю',
-  '🎬 Дивлюсь фільм',
-  '📚 Готуюсь до тех. співбесіди',
-  '💻 Пишу код',
-  '🐞 Дебажу',
-  '☕ На каві',
-  '🤝 Відкритий до спілкування',
-  '🔕 Не турбувати',
+  '🎧 Listening to music',
+  '😎 Chilling',
+  '🎬 Watching a movie',
+  '📚 Prepping for a tech interview',
+  '💻 Coding',
+  '🐞 Debugging',
+  '☕ Coffee break',
+  '🤝 Open to chat',
+  '🔕 Do not disturb',
 ]
 const MAX_STATUS = 40 // як GameWorld.MAX_STATUS на сервері
 
@@ -33,8 +33,8 @@ export function StatusPicker({ client, status }: { client: GameClient; status: s
 
   return (
     <div className="status-picker">
-      <button className="status-current" onClick={() => setOpen((o) => !o)} title="Що ти зараз робиш?">
-        {status || <span className="muted">+ Статус</span>}
+      <button className="status-current" onClick={() => setOpen((o) => !o)} title="What are you up to?">
+        {status || <span className="muted">+ Status</span>}
         <span className="caret">{open ? '▴' : '▾'}</span>
       </button>
       {open && (
@@ -48,14 +48,14 @@ export function StatusPicker({ client, status }: { client: GameClient; status: s
             <input
               value={custom}
               maxLength={MAX_STATUS}
-              placeholder="Свій статус…"
+              placeholder="Custom status…"
               onChange={(e) => setCustom(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
             />
           </form>
           {status && (
             <button className="clear" onClick={() => choose('')}>
-              Без статусу
+              Clear status
             </button>
           )}
         </div>

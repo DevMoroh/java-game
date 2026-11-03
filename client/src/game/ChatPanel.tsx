@@ -50,20 +50,20 @@ export function ChatPanel({ client }: { client: GameClient }) {
         {group ? (
           <>
             <span className="color-dot" style={{ background: self?.color }} />
-            Чат з {mates.length > 0 ? mates.map((m) => m.name).join(', ') : '…'}
+            Chat with {mates.length > 0 ? mates.map((m) => m.name).join(', ') : '…'}
             <button
               className="chat-leave"
-              title="Назад у загальний чат, зі своїм кольором"
+              title="Back to the general chat with your own color"
               onClick={(e) => {
                 client.leaveGroup()
                 e.currentTarget.blur() // щоб пробіл потім не «натискав» кнопку
               }}
             >
-              Вийти з чату
+              Leave chat
             </button>
           </>
         ) : (
-          <>💬 Загальний чат</>
+          <>💬 General chat</>
         )}
       </div>
       <div
@@ -74,7 +74,7 @@ export function ChatPanel({ client }: { client: GameClient }) {
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
         }}
       >
-        {lines.length === 0 && <div className="chat-system">Тут поки тихо — напиши першим 👋</div>}
+        {lines.length === 0 && <div className="chat-system">Quiet here so far — say hi first 👋</div>}
         {lines.map((line) =>
           line.kind === 'system' ? (
             <div key={line.key} className={line.error ? 'chat-system error' : 'chat-system'}>
@@ -94,7 +94,7 @@ export function ChatPanel({ client }: { client: GameClient }) {
           ref={input}
           value={text}
           maxLength={MAX_LENGTH}
-          placeholder={group ? 'Enter — написати в груповий чат' : 'Enter — написати в загальний чат'}
+          placeholder={group ? 'Enter — message the group' : 'Enter — message everyone'}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') e.currentTarget.blur()

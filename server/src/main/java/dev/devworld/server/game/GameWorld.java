@@ -521,13 +521,13 @@ public class GameWorld implements SmartInitializingSingleton {
         var p = players.get(id);
         var q = players.get(targetId);
         if (p == null || q == null || p == q) {
-            return GroupOutcome.fail("Цього гравця вже немає поруч");
+            return GroupOutcome.fail("That player is no longer nearby");
         }
         if (Math.hypot(q.x - p.x, q.z - p.z) > Groups.CIRCLE_RADIUS + JOIN_TOLERANCE) {
-            return GroupOutcome.fail("Підійди ближче до " + q.name + ", щоб приєднатися до чату");
+            return GroupOutcome.fail("Get closer to " + q.name + " to join their chat");
         }
         if (groups.sameGroup(p.memberKey, q.memberKey)) {
-            return GroupOutcome.fail("Ви з " + q.name + " вже в одному чаті");
+            return GroupOutcome.fail("You and " + q.name + " are already in the same chat");
         }
         var changes = new GroupChanges();
         leaveCurrentGroup(p, changes);
@@ -544,14 +544,14 @@ public class GameWorld implements SmartInitializingSingleton {
             store.setGroupMember(p.token, group.id);
         }
         changes.changed(p);
-        return changes.outcome("Ти в чаті з " + q.name);
+        return changes.outcome("You are now chatting with " + q.name);
     }
 
     /** Вийти з групового чату — назад у загальний, зі своїм кольором. */
     public synchronized GroupOutcome leaveGroup(String id) {
         var p = players.get(id);
         if (p == null || groups.groupOf(p.memberKey) == null) {
-            return GroupOutcome.fail("Ти і так у загальному чаті");
+            return GroupOutcome.fail("You are already in the general chat");
         }
         var changes = new GroupChanges();
         leaveCurrentGroup(p, changes);
@@ -559,7 +559,7 @@ public class GameWorld implements SmartInitializingSingleton {
             store.setGroupMember(p.token, null);
         }
         changes.changed(p);
-        return changes.outcome("Ти повернувся в загальний чат");
+        return changes.outcome("You are back in the general chat");
     }
 
     /** Група гравця (для чату) або null — загальний чат. */

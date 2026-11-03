@@ -42,11 +42,11 @@ export function Nameplates({ players, client }: { players: PlayerInfo[]; client:
     }
     const offs = [
       client.on('slapImpact', (e) => {
-        if (e.dodged) showPop(e.to, 'Ухилився!', 'dodge')
-        else showPop(e.to, e.penalty > 0 ? `ЛЯЩ! −${e.penalty}` : 'ЛЯЩ!', 'hit')
+        if (e.dodged) showPop(e.to, 'Dodged!', 'dodge')
+        else showPop(e.to, e.penalty > 0 ? `SLAP! −${e.penalty}` : 'SLAP!', 'hit')
       }),
       client.on('slap', (e) => {
-        if (!e.to && e.ally) showPop(e.ally, 'Свої!', 'ally')
+        if (!e.to && e.ally) showPop(e.ally, 'Friend!', 'ally')
       }),
       client.on('chat', (e) => {
         const bubble = { at: Date.now(), text: e.text.length > BUBBLE_MAX ? e.text.slice(0, BUBBLE_MAX - 1) + '…' : e.text }

@@ -61,7 +61,7 @@ export class AvatarAnimator {
     this.avatarScale = avatarScale
     const bone = (name: string) => {
       const b = root.getObjectByName(name)
-      if (!b) throw new Error('Немає кістки ' + name)
+      if (!b) throw new Error('Missing bone ' + name)
       return b
     }
     this.arm = { upper: bone('upperarm_r'), lower: bone('lowerarm_r'), hand: bone('hand_r') }
@@ -194,7 +194,7 @@ export class AvatarAnimator {
 
   private action(name: string) {
     const clip = this.clips.find((c) => c.name === name)
-    if (!clip) throw new Error('animations.glb: немає кліпу ' + name)
+    if (!clip) throw new Error('animations.glb: missing clip ' + name)
     return this.mixer.clipAction(clip)
   }
 }

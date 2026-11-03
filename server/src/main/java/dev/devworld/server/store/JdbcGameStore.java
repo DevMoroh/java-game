@@ -183,7 +183,7 @@ public class JdbcGameStore implements GameStore {
             writer.submit(() -> {
             }).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
-            throw new IllegalStateException("Записи в БД не завершилися", e);
+            throw new IllegalStateException("Database writes did not finish", e);
         }
     }
 
@@ -192,7 +192,7 @@ public class JdbcGameStore implements GameStore {
         cleanup.shutdownNow();
         writer.shutdown();
         if (!writer.awaitTermination(10, TimeUnit.SECONDS)) {
-            log.warn("Не всі записи в БД завершилися до зупинки");
+            log.warn("Not all database writes finished before shutdown");
         }
     }
 
@@ -212,10 +212,10 @@ public class JdbcGameStore implements GameStore {
                     .param(Timestamp.from(Instant.now().minus(chatRetention)))
                     .update();
             if (deleted > 0) {
-                log.info("Видалено {} старих повідомлень чату", deleted);
+                log.info("Deleted {} old chat messages", deleted);
             }
         } catch (RuntimeException e) {
-            log.error("Не вдалося почистити старий чат", e);
+            log.error("Failed to clean up old chat messages", e);
         }
     }
 
@@ -224,7 +224,7 @@ public class JdbcGameStore implements GameStore {
             try {
                 action.run();
             } catch (RuntimeException e) {
-                log.error("БД: не вдалося {}", what, e);
+                log.error("Database: failed to {}", what, e);
             }
         });
     }

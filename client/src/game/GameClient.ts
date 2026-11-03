@@ -199,8 +199,8 @@ export class GameClient {
         const before = this.players.find((p) => p.id === msg.id)
         // Хтось приєднався до мого групового чату або вийшов з нього — системний рядок.
         if (before && msg.id !== this.selfId && this.chatGroup && before.group !== msg.group) {
-          if (msg.group === this.chatGroup) this.addChat({ kind: 'system', key: 0, text: `${before.name} приєднався до чату` })
-          else if (before.group === this.chatGroup) this.addChat({ kind: 'system', key: 0, text: `${before.name} вийшов з чату` })
+          if (msg.group === this.chatGroup) this.addChat({ kind: 'system', key: 0, text: `${before.name} joined the chat` })
+          else if (before.group === this.chatGroup) this.addChat({ kind: 'system', key: 0, text: `${before.name} left the chat` })
         }
         // Новий об'єкт гравця, але та сама appearance — аватар не перебудовується.
         this.players = this.players.map((p) =>

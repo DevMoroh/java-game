@@ -68,7 +68,7 @@ public class Chat {
         double tokens = Math.min(BURST, bucket.tokens + (double) (now - bucket.atNanos) / REFILL_NANOS);
         if (tokens < 1) {
             buckets.put(playerId, new Bucket(tokens, now));
-            return new PostResult(null, "Не так швидко — зачекай секунду");
+            return new PostResult(null, "Slow down — wait a second");
         }
         buckets.put(playerId, new Bucket(tokens - 1, now));
 
