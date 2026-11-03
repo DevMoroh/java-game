@@ -108,6 +108,23 @@ const DIALOGUES = [
 // ---------- Стан режисера ----------
 
 const tokens = fs.existsSync(TOKENS) ? JSON.parse(fs.readFileSync(TOKENS, 'utf8')) : {}
+
+/** Випадковий «девелоперський» нік; генерується раз і зберігається в tokens.json разом із профілем. */
+const NICK_WORDS = ['null', 'byte', 'pixel', 'stack', 'bug', 'lambda', 'kernel', 'async', 'cache', 'regex', 'commit', 'merge', 'segfault', 'sudo', 'git', 'cron', 'tuple', 'mutex']
+const leet = (w) => w.replace(/o/g, () => (chance(0.5) ? '0' : 'o')).replace(/e/g, () => (chance(0.3) ? '3' : 'e'))
+function randomNick(first) {
+  const n = first.toLowerCase(), w = pick(NICK_WORDS), d = Math.floor(rand(1, 999))
+  const nick = pick([
+    () => `${n}_${w}`, () => `${w}.${n}`, () => `${leet(n)}${d}`, () => `${n}.${w}${Math.floor(rand(0, 99))}`,
+    () => `x${w}x`, () => `${w}_${d}`, () => `${n[0]}${w}`, () => `${leet(w)}${pick(['dev', 'ops', 'js', 'py', 'go'])}`,
+  ])()
+  return nick.slice(0, 20)
+}
+/** Нік бота: старі записи без ніка отримують новий нік і новий профіль (сервер бере ім'я з профілю). */
+function nickFor(persona) {
+  if (!tokens[persona.name]?.nick) tokens[persona.name] = { nick: randomNick(persona.name) }
+  return tokens[persona.name].nick
+}
 const bots = new Map() // name → bot
 const seen = new Set() // ключі вже оброблених повідомлень (кожне бачать кілька ботів)
 const chats = new Map() // id чату ('' — загальний) → { lastAt, botStreak }
@@ -133,7 +150,9 @@ function budgetOk() {
 }
 
 function fill(text, vars) {
-  return text.replace('{name}', vars.name ?? 'there')
+  // Імена ботів у репліках (напр. «ask James») показуємо їхніми ніками, як їх бачать гравці.
+  const withNicks = [...bots.values()].reduce((t, b) => (b.nick ? t.replace(new RegExp(`\\b${b.persona.name}\\b`, 'g'), b.nick) : t), text)
+  return withNicks.replace('{name}', vars.name ?? 'there')
 }
 
 /** Бот «друкує» і відправляє репліку, не повторюючи свої нещодавні фрази. */
@@ -171,7 +190,9 @@ function replyFor(bot, msg, fromHuman) {
 }
 
 const mentionsStack = (bot, text) => bot.persona.stack.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(text))
-const mentionedBot = (group, text) => botsInChat(group).find((b) => new RegExp(`\\b${b.persona.name}\\b`, 'i').test(text))
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const mentionedBot = (group, text) => botsInChat(group).find((b) =>
+  [b.nick, b.persona.name].some((n) => n && new RegExp(`(^|[^\\w])${escapeRe(n)}([^\\w]|$)`, 'i').test(text)))
 
 /** Режисер: нове повідомлення в чаті — хто (і чи) відповідає. */
 function onChatMessage(msg) {
@@ -246,7 +267,8 @@ function runBot(persona) {
   const later = (ms, fn) => timers.push(setTimeout(fn, ms))
   bot.send = (msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg))
 
-  ws.onopen = () => bot.send({ type: 'join', name: persona.name, gender: persona.gender,
+  bot.nick = nickFor(persona)
+  ws.onopen = () => bot.send({ type: 'join', name: bot.nick, gender: persona.gender,
     token: tokens[persona.name]?.token, appearance: tokens[persona.name]?.appearance })
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data)
@@ -254,11 +276,11 @@ function runBot(persona) {
       case 'welcome': {
         bot.selfId = m.selfId
         const self = m.players.find((p) => p.id === m.selfId)
-        tokens[persona.name] = { token: m.token, appearance: self.appearance }
+        tokens[persona.name] = { nick: bot.nick, token: m.token, appearance: self.appearance }
         fs.writeFileSync(TOKENS, JSON.stringify(tokens, null, 2))
         for (const p of m.players) trackPlayer(p)
         restUntil = Date.now() + rand(1000, 6000)
-        log(`${persona.name} у грі (онлайн: ${m.players.length})`)
+        log(`${persona.name} (${bot.nick}) у грі (онлайн: ${m.players.length})`)
         later(rand(2000, 8000), () => bot.send({ type: 'status', text: pick(STATUSES) }))
         break
       }
