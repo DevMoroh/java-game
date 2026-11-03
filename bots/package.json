@@ -1,0 +1,9 @@
+{
+  "name": "devworld-bots",
+  "private": true,
+  "type": "module",
+  "description": "Боти для Dev World: ходять полем і спілкуються в чаті (без зовнішніх API, на правилах)",
+  "scripts": {
+    "start": "node bots.mjs"
+  }
+}
