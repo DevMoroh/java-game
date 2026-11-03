@@ -1,0 +1,146 @@
+# CI/CD: push у main → тести → Docker-образ у GitHub Container Registry → деплой на VPS по SSH.
+# Pull request'и лише перевіряються (тести й збірка), без публікації й деплою.
+#
+# Для деплою потрібні (Settings → Secrets and variables → Actions):
+#   secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY (приватний ключ), необов'язково VPS_PORT, VPS_KNOWN_HOSTS
+#   variables: DOMAIN (для перевірки після деплою), необов'язково DEPLOY_PATH (за замовчуванням /opt/devworld)
+# Поки VPS_HOST не задано, крок деплою пропускається.
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Сервер — тести (PostgreSQL через Testcontainers)
+        working-directory: server
+        run: ./gradlew test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Клієнт — лінтер, типи, збірка
+        working-directory: client
+        run: |
+          npm ci
+          npx oxlint src
+          npm run build
+
+  image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Назва образу (GHCR вимагає нижній регістр)
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+            ${{ steps.name.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/devworld' }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      IMAGE: ${{ needs.image.outputs.image }}:${{ github.sha }}
+    steps:
+      - name: Чи налаштовано VPS
+        id: check
+        run: |
+          if [ -z "$VPS_HOST" ]; then
+            echo "Секрет VPS_HOST не задано — деплой пропущено (див. README → Деплой)." >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.enabled == 'true'
+
+      - name: SSH-ключ
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # Краще задати VPS_KNOWN_HOSTS (ssh-keyscan -p PORT HOST); інакше — довіряємо ключу хоста з першого підключення.
+          if [ -n "$KNOWN_HOSTS" ]; then printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" > ~/.ssh/known_hosts 2>/dev/null; fi
+
+      - name: Деплой
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SSH="ssh -i ~/.ssh/id_deploy -p $VPS_PORT $VPS_USER@$VPS_HOST"
+          # Конфіги з репозиторію — джерело правди; .env із секретами живе лише на сервері.
+          scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/compose.yaml deploy/Caddyfile "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
+          echo "$GHCR_TOKEN" | $SSH "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+          $SSH "set -e
+            cd '$DEPLOY_PATH'
+            test -f .env || { echo 'Немає $DEPLOY_PATH/.env — створи з deploy/.env.example'; exit 1; }
+            sed -i '/^APP_IMAGE=/d' .env && echo 'APP_IMAGE=$IMAGE' >> .env
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
+            docker logout ghcr.io"
+
+      - name: Перевірка, що гра відповідає
+        if: steps.check.outputs.enabled == 'true' && env.DOMAIN != ''
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$DOMAIN/actuator/health" | grep -q '"UP"'; then echo "OK: https://$DOMAIN"; exit 0; fi
+            sleep 5
+          done
+          echo "https://$DOMAIN не відповідає після деплою" && exit 1

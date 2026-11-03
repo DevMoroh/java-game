@@ -1,0 +1,52 @@
+# Продакшн на VPS: застосунок + PostgreSQL + Caddy (HTTPS від Let's Encrypt, проксі для WebSocket).
+# Лежить у DEPLOY_PATH на сервері; GitHub Actions оновлює цей файл і APP_IMAGE в .env на кожен деплой.
+# Змінні — з .env поруч (див. .env.example).
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: devworld
+      POSTGRES_USER: devworld
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задай POSTGRES_PASSWORD у .env}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devworld -d devworld"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: ${APP_IMAGE:?задай APP_IMAGE у .env}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devworld
+      SPRING_DATASOURCE_USERNAME: devworld
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      GAME_ALLOWED_ORIGINS: https://${DOMAIN:?задай DOMAIN у .env}
+    # Назовні не публікуємо: до застосунку ходить лише Caddy.
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

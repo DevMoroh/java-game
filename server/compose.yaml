@@ -1,0 +1,17 @@
+# База для розробки. Spring Boot (spring-boot-docker-compose) сам робить `docker compose up` при bootRun
+# і підставляє з'єднання. Дані живуть у томі devworld-db між перезапусками.
+# Підключитися вручну: psql postgresql://devworld:devworld@localhost:55432/devworld
+services:
+  postgres:
+    image: 'postgres:18'
+    environment:
+      - 'POSTGRES_DB=devworld'
+      - 'POSTGRES_USER=devworld'
+      - 'POSTGRES_PASSWORD=devworld'
+    ports:
+      - '55432:5432'
+    volumes:
+      - 'devworld-db:/var/lib/postgresql'
+
+volumes:
+  devworld-db:

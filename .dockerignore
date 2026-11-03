@@ -1,0 +1,12 @@
+**/.DS_Store
+.idea
+.git
+.github
+deploy
+README.md
+client/node_modules
+client/dist
+client/assets-src
+server/build
+server/.gradle
+server/bin

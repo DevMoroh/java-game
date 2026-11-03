@@ -1,0 +1,16 @@
+# HTTPS для домену — автоматично (Let's Encrypt); WebSocket (/ws) Caddy прокидає сам.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Файли з хешем у назві (Vite) не змінюються — хай браузер кешує надовго.
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+
+	# З actuator назовні — лише health (для перевірки після деплою).
+	@actuator {
+		path /actuator/*
+		not path /actuator/health
+	}
+	respond @actuator 404
+
+	reverse_proxy app:8080
+}

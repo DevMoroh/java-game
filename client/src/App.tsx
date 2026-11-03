@@ -1,0 +1,192 @@
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { Game } from './game/Game'
+import { ChatPanel } from './game/ChatPanel'
+import { GameClient } from './game/GameClient'
+import { HandshakePrompt } from './game/HandshakePrompt'
+import { Leaderboard } from './game/Leaderboard'
+import { ChatPrompts } from './game/ChatPrompts'
+import { PlayerPanel } from './game/PlayerPanel'
+import { clearSession, loadSession, type Session } from './game/session'
+import type { Gender } from './game/types'
+
+interface JoinRequest {
+  name: string
+  gender: Gender
+  resume?: Session
+}
+
+/** Є сесія в цій вкладці (перезавантаження) — одразу заходимо тим самим персонажем, без екрана входу. */
+function initialRequest(): JoinRequest | null {
+  const session = loadSession()
+  return session && { name: session.name, gender: session.gender, resume: session }
+}
+
+export default function App() {
+  const [request, setRequest] = useState<JoinRequest | null>(initialRequest)
+  const [client, setClient] = useState<GameClient | null>(null)
+
+  // З'єднання створюємо в ефекті з очищенням: StrictMode викликає ініціалізатори двічі, і зайвий
+  // WebSocket лишав би в грі двійника. Тут перший клієнт закривається ще до відкриття сокета.
+  useEffect(() => {
+    if (!request) return
+    const c = new GameClient(request.name, request.gender, request.resume)
+    // oxlint-disable-next-line react/set-state-in-effect -- синхронізація із зовнішнім ресурсом (WebSocket)
+    setClient(c)
+    return () => {
+      c.close()
+      setClient(null)
+    }
+  }, [request])
+
+  // Для дебагу в консолі: __game.local, __game.positions …
+  useEffect(() => {
+    if (import.meta.env.DEV) Object.assign(window, { __game: client })
+  }, [client])
+
+  if (!request) {
+    return <JoinScreen onJoin={(name, gender) => setRequest({ name, gender })} />
+  }
+  if (!client) return null
+  return (
+    <>
+      <Game client={client} />
+      <Hud
+        client={client}
+        onReconnect={() => setRequest(initialRequest() ?? { ...request })}
+        onLeave={() => {
+          clearSession()
+          setRequest(null)
+        }}
+      />
+    </>
+  )
+}
+
+function JoinScreen({ onJoin }: { onJoin: (name: string, gender: Gender) => void }) {
+  const [name, setName] = useState(() => localStorageGet('name'))
+  const [gender, setGender] = useState<Gender>(() => (localStorageGet('gender') as Gender) || 'MALE')
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    localStorageSet('name', name)
+    localStorageSet('gender', gender)
+    onJoin(name.trim(), gender)
+  }
+
+  return (
+    <div className="join">
+      <form className="join-card" onSubmit={submit}>
+        <h1>Dev World</h1>
+        <p className="muted">Заходь як гість і гуляй полем</p>
+        <label>
+          Ім'я
+          <input value={name} maxLength={20} placeholder="Guest" autoFocus onChange={(e) => setName(e.target.value)} />
+        </label>
+        <div className="gender">
+          {(['MALE', 'FEMALE'] as const).map((g) => (
+            <button type="button" key={g} className={gender === g ? 'active' : ''} onClick={() => setGender(g)}>
+              {g === 'MALE' ? '👨 Чоловік' : '👩 Жінка'}
+            </button>
+          ))}
+        </div>
+        <button type="submit" className="primary">Увійти в гру</button>
+      </form>
+    </div>
+  )
+}
+
+function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect: () => void; onLeave: () => void }) {
+  const players = useSyncExternalStore(client.subscribe, client.getPlayers)
+  const status = useSyncExternalStore(client.subscribe, client.getStatus)
+
+  return (
+    <>
+      <div className="hud-left">
+        <div className="hud">
+          <strong>Dev World</strong>
+          <span className="muted"> · онлайн: {players.length}</span>
+          <button className="link-button" onClick={onLeave} title="Вийти й зайти іншим персонажем">
+            Вийти
+          </button>
+        </div>
+        <PlayerPanel client={client} />
+      </div>
+      <Leaderboard client={client} />
+      <ChatPrompts client={client} />
+      {/* Чат і підказка — одним стовпчиком: так вони не налазять одне на одного за будь-якої висоти. */}
+      <div className="bottom-left-stack">
+        <ChatPanel client={client} />
+        <div className="hud hint muted">
+          WASD / клік по траві — рух · пробіл — стрибок · H — привітатись · F — лящ · Enter — чат · колесо — зум
+        </div>
+      </div>
+      <HandshakePrompt client={client} />
+      <div className="actions">
+        <ActionButton className="shake" title="Простягнути руку / потиснути простягнуту (H)" onClick={() => client.handshake()}>
+          🤝 Привітатись <kbd>H</kbd>
+        </ActionButton>
+        <ActionButton className="slap" title="Дати ляща найближчому (F)" onClick={() => client.slap()}>
+          👋 Лящ <kbd>F</kbd>
+        </ActionButton>
+      </div>
+      {status !== 'online' && (
+        <div className="overlay">
+          <div className="join-card">
+            {status === 'connecting' ? (
+              <p>Підключення…</p>
+            ) : (
+              <>
+                <p>З'єднання з сервером втрачено</p>
+                <button className="primary" onClick={onReconnect}>
+                  Підключитися знову
+                </button>
+                <button onClick={onLeave}>Вийти</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function ActionButton({
+  className,
+  title,
+  onClick,
+  children,
+}: {
+  className: string
+  title: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      className={`action-button ${className}`}
+      title={title}
+      onClick={(e) => {
+        onClick()
+        e.currentTarget.blur() // щоб пробіл потім не «натискав» кнопку
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function localStorageGet(key: string) {
+  try {
+    return localStorage.getItem(`devworld.${key}`) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function localStorageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(`devworld.${key}`, value)
+  } catch {
+    // приватний режим — не критично
+  }
+}
