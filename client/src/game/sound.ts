@@ -1,9 +1,11 @@
+import { soundsOn } from './soundSettings'
+
 /** Синтезований звук ляпаса: короткий сплеск шуму через смуговий фільтр — без аудіофайлів. */
 let ctx: AudioContext | null = null
 
 /** «Вжух» — рука пролетіла повз: м'який шум, фільтр якого ковзає вниз. */
 export function playWhooshSound(volume: number) {
-  if (volume <= 0.01) return
+  if (volume <= 0.01 || !soundsOn()) return
   try {
     ctx ??= new AudioContext()
     const now = ctx.currentTime
@@ -32,7 +34,7 @@ export function playWhooshSound(volume: number) {
 }
 
 export function playSlapSound(volume: number) {
-  if (volume <= 0.01) return
+  if (volume <= 0.01 || !soundsOn()) return
   try {
     ctx ??= new AudioContext()
     const now = ctx.currentTime
@@ -60,7 +62,7 @@ export function playSlapSound(volume: number) {
 
 /** «Плесь-плесь» рукостискання: два м'які глухі шльопки. */
 export function playPatSound(volume: number) {
-  if (volume <= 0.01) return
+  if (volume <= 0.01 || !soundsOn()) return
   try {
     ctx ??= new AudioContext()
     for (const delay of [0, 0.16]) {
@@ -86,7 +88,7 @@ export function playPatSound(volume: number) {
 
 /** «Дзінь-дзінь» за очки: три ноти вгору (до-мі-соль) і дзвіночок октавою вище — як коротка фанфара. */
 export function playChimeSound(volume: number) {
-  if (volume <= 0.01) return
+  if (volume <= 0.01 || !soundsOn()) return
   try {
     ctx ??= new AudioContext()
     const notes = [
@@ -118,7 +120,7 @@ export function playChimeSound(volume: number) {
 
 /** «Дінь-дон» нової пошти: дві м'які ноти вниз з довгим дзвінким згасанням — тихіше й спокійніше за фанфару очок. */
 export function playMailSound(volume: number) {
-  if (volume <= 0.01) return
+  if (volume <= 0.01 || !soundsOn()) return
   try {
     ctx ??= new AudioContext()
     for (const n of [

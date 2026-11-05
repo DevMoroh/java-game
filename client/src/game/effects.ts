@@ -1,5 +1,4 @@
 import type { GameClient } from './GameClient'
-import { messageSoundOn } from './messageSound'
 import { playChimeSound, playMailSound, playPatSound, playSlapSound, playWhooshSound } from './sound'
 
 /** Далі за цю відстань від себе лящ уже не чути. */
@@ -28,9 +27,9 @@ export function subscribeSounds(client: GameClient) {
     client.on('handshake', (e) => {
       setTimeout(() => playPatSound(volumeAt(e.from, e.to) * 0.5), 300)
     }),
-    // Нове в моїй скриньці — якщо я не вимкнув звук цієї скриньки чи всіх повідомлень загалом.
+    // Нове в моїй скриньці — якщо я не вимкнув звук цієї скриньки (усі звуки разом вимикає soundSettings).
     client.on('boardNotify', (e) => {
-      if (!e.muted && messageSoundOn()) playMailSound(0.8)
+      if (!e.muted) playMailSound(0.8)
     }),
     client.on('scoreGain', (e) => {
       // Після «плесь» рукостискання, щоб звуки не злипались.

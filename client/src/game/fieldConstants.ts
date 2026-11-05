@@ -5,7 +5,7 @@ export const BOARD_RANGE = 2.5
 export const EGG_RANGE = 1.8
 
 /** Кольори скриньок по черзі — щоб їх легше було розрізняти й запам'ятати. */
-const BOX_COLORS = ['#dc2626', '#2563eb', '#ea580c', '#7c3aed', '#0891b2', '#db2777', '#4b5563']
+const BOX_COLORS = ['#dc2626', '#2563eb', '#ea580c', '#7c3aed', '#0891b2', '#db2777', '#4b5563', '#16a34a']
 
 export function boardColor(boards: BoardInfo[], id: string) {
   return BOX_COLORS[Math.max(0, boards.findIndex((b) => b.id === id)) % BOX_COLORS.length]
