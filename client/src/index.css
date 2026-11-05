@@ -402,7 +402,7 @@ button.primary {
   opacity: 0.9;
 }
 
-/* Загальний вимикач звуку нових повідомлень — зверху по центру. */
+/* Загальний вимикач звуків — зверху по центру. */
 .message-sound-toggle {
   position: fixed;
   top: 12px;
@@ -802,6 +802,7 @@ button kbd {
 .modal-layer {
   position: fixed;
   inset: 0;
+  z-index: 20; /* над мітками на полі й кнопкою звуку */
   display: flex;
   align-items: center;
   justify-content: center;

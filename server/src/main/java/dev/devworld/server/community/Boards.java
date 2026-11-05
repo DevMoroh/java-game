@@ -65,7 +65,11 @@ public class Boards {
                     false, -15.9, -2.0),
             new BoardInfo("miltech", "MilTech / DefTech jobs",
                     "Looking for a job in MilTech or DefTech, or hiring for it? Everything about defence tech jobs here.",
-                    false, -6.3, -10.2));
+                    false, -6.3, -10.2),
+            new BoardInfo("embedded", "Embedded Development",
+                    "Firmware, microcontrollers, RTOS, drivers and hardware bring-up — ask questions, share projects "
+                            + "and jobs in embedded development.",
+                    false, 8.2, 13.0));
 
     private static final Map<String, BoardInfo> BY_ID = new LinkedHashMap<>();
 

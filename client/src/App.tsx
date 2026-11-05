@@ -9,7 +9,7 @@ import { HandshakePrompt } from './game/HandshakePrompt'
 import { Leaderboard } from './game/Leaderboard'
 import { ChatPrompts } from './game/ChatPrompts'
 import { PlayerPanel } from './game/PlayerPanel'
-import { messageSoundOn, setMessageSoundOn, subscribeMessageSound } from './game/messageSound'
+import { onSoundsChange, setSoundsOn, soundsOn } from './game/soundSettings'
 import { clearSession, loadSession, type Session } from './game/session'
 import type { Gender } from './game/types'
 
@@ -116,7 +116,7 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
         <PlayerPanel client={client} />
         <CollectionPanel client={client} />
       </div>
-      <MessageSoundToggle />
+      <SoundToggle />
       <Leaderboard client={client} />
       <ChatPrompts client={client} />
       {/* Чат і підказка — одним стовпчиком: так вони не налазять одне на одного за будь-якої висоти. */}
@@ -158,19 +158,19 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
   )
 }
 
-/** Зверху по центру: вимкнути для себе звук нових повідомлень одразу в усіх скриньках. */
-function MessageSoundToggle() {
-  const on = useSyncExternalStore(subscribeMessageSound, messageSoundOn)
+/** Зверху по центру: вимкнути для себе всі звуки гри (бали, пошта, ляпаси, рукостискання). */
+function SoundToggle() {
+  const on = useSyncExternalStore(onSoundsChange, soundsOn)
   return (
     <button
       className={`message-sound-toggle ${on ? '' : 'off'}`}
-      title={on ? 'Mute new message sounds in all boxes' : 'Turn new message sounds back on'}
+      title={on ? 'Mute all game sounds' : 'Turn game sounds back on'}
       onClick={(e) => {
-        setMessageSoundOn(!on)
+        setSoundsOn(!on)
         e.currentTarget.blur()
       }}
     >
-      {on ? '🔔' : '🔕'} <span className="label">Message sounds {on ? 'on' : 'off'}</span>
+      {on ? '🔔' : '🔕'} <span className="label">Sounds {on ? 'on' : 'off'}</span>
     </button>
   )
 }
