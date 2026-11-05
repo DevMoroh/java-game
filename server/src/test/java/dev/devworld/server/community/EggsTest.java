@@ -9,9 +9,11 @@ import dev.devworld.server.game.Messages.Notice;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,47 +31,45 @@ class EggsTest {
     void noArticlesNoEggs() {
         var eggs = eggs(2);
 
-        assertThat(eggs.tick()).isEmpty();
+        assertThat(eggs.connect("p", "t")).isEmpty();
         clock.addAndGet(INTERVAL);
         assertThat(eggs.tick()).isEmpty();
-        assertThat(eggs.snapshot()).isEmpty();
+        assertThat(eggs.snapshot("p")).isEmpty();
     }
 
     @Test
-    void initialEggsAppearSoonAfterArticlesAreAdded() {
-        var eggs = eggs(2);
-        assertThat(eggs.tick()).isEmpty();
-
-        articles(3);
-        clock.addAndGet(Eggs.EMPTY_RETRY_NANOS);
-
-        assertThat(eggs.tick()).hasSize(2);
-        clock.addAndGet(Eggs.EMPTY_RETRY_NANOS);
-        assertThat(eggs.tick()).isEmpty();
-    }
-
-    @Test
-    void initialEggsThenOneEveryIntervalUpToTheLimit() {
+    void newcomerGetsEggsAtOnceThenOneEveryIntervalUpToTheLimit() {
         articles(10);
         var eggs = eggs(2);
 
-        assertThat(eggs.tick()).hasSize(2);
+        eggs.connect("p", "t");
+        assertThat(eggs.snapshot("p")).hasSize(2);
         assertThat(eggs.tick()).isEmpty();
         for (int i = 0; i < 10; i++) {
             clock.addAndGet(INTERVAL);
             eggs.tick();
         }
 
-        assertThat(eggs.snapshot()).hasSize(Eggs.MAX_EGGS);
-        assertThat(eggs.snapshot()).extracting(Eggs.EggView::color).allMatch(c -> c.startsWith("#"));
+        assertThat(eggs.snapshot("p")).hasSize(Eggs.MAX_EGGS);
+        assertThat(eggs.snapshot("p")).extracting(Eggs.EggView::color).allMatch(c -> c.startsWith("#"));
+    }
+
+    @Test
+    void noOneInTheGameNoNewEggs() {
+        articles(3);
+        var eggs = eggs(2);
+
+        clock.addAndGet(INTERVAL);
+        assertThat(eggs.tick()).isEmpty();
     }
 
     @Test
     void openingHidesTheEggAndShowsTheArticle() {
         articles(3);
         var eggs = eggs(1);
-        eggs.tick();
-        var egg = eggs.snapshot().getFirst();
+        eggs.connect("p", "t");
+        eggs.connect("q", "tq");
+        var egg = eggs.snapshot("p").getFirst();
 
         var far = eggs.open("p", "t", egg.id(), egg.x() + 10, egg.z());
         var near = eggs.open("p", "t", egg.id(), egg.x() + 1, egg.z());
@@ -78,7 +78,7 @@ class EggsTest {
         assertThat(near).extracting(Envelope::message)
                 .anySatisfy(m -> assertThat(m).isInstanceOf(EggGone.class))
                 .anySatisfy(m -> assertThat(m).isInstanceOfSatisfying(EggArticle.class, a -> assertThat(a.egg()).isEqualTo(egg.id())));
-        assertThat(eggs.snapshot()).isEmpty();
+        assertThat(eggs.snapshot("q")).extracting(Eggs.EggView::id).doesNotContain(egg.id());
         assertThat(eggs.open("q", "tq", egg.id(), egg.x(), egg.z())).singleElement()
                 .extracting(Envelope::message).isInstanceOf(Notice.class);
     }
@@ -87,8 +87,8 @@ class EggsTest {
     void keepAddsToCollectionAndRemovesTheEgg() {
         articles(3);
         var eggs = eggs(1);
-        eggs.tick();
-        var egg = eggs.snapshot().getFirst();
+        eggs.connect("p", "t");
+        var egg = eggs.snapshot("p").getFirst();
         eggs.open("p", "t", egg.id(), egg.x(), egg.z());
 
         var out = eggs.keep("p", "t");
@@ -96,17 +96,58 @@ class EggsTest {
         var collection = (EggCollection) out.getFirst().message();
         assertThat(collection.items()).hasSize(1);
         assertThat(collection.total()).isEqualTo(3);
-        assertThat(eggs.snapshot()).isEmpty();
+        assertThat(eggs.snapshot("p")).isEmpty();
         assertThat(eggs.read("p", "t", collection.items().getFirst().articleId())).hasSize(1);
         assertThat(eggs.read("p", "t", "not-mine")).isEmpty();
+    }
+
+    @Test
+    void foundArticleNeverComesBackAsAnEggEvenAfterRejoining() {
+        articles(1);
+        var eggs = eggs(2);
+        eggs.connect("p", "t");
+        var egg = eggs.snapshot("p").getFirst();
+        eggs.open("p", "t", egg.id(), egg.x(), egg.z());
+        eggs.drop("p", 0, 0); // викинув — однаково знайдено
+
+        clock.addAndGet(INTERVAL);
+        eggs.tick();
+        eggs.disconnect("p", 0, 0);
+        eggs.connect("p2", "t");
+
+        assertThat(eggs.snapshot("p2")).isEmpty();
+        // З'явилась нова стаття — найближче яйце буде з нею.
+        library.add(new Article("fresh", "Java", null, "Fresh", "Body"));
+        clock.addAndGet(INTERVAL);
+        assertThat(eggs.tick()).extracting(Envelope::to).containsExactly("p2");
+        assertThat(eggs.snapshot("p2")).singleElement().extracting(Eggs.EggView::id).isNotEqualTo(egg.id());
+    }
+
+    @Test
+    void thrownAwayEggIsLeftForThoseWhoHaveNotFoundItYet() {
+        articles(1);
+        var eggs = eggs(1);
+        eggs.connect("p", "t");
+        eggs.connect("q", "tq");
+        var egg = eggs.snapshot("p").getFirst();
+
+        assertThat(points(eggs.open("p", "t", egg.id(), egg.x(), egg.z()))).isEqualTo(Eggs.OPEN_POINTS);
+        var dropped = eggs.drop("p", egg.x(), egg.z());
+
+        assertThat(dropped).extracting(Envelope::to).containsExactly("q");
+        assertThat(eggs.snapshot("p")).isEmpty();
+        assertThat(eggs.open("p", "t", egg.id(), egg.x(), egg.z())).singleElement()
+                .extracting(Envelope::message).isInstanceOf(Notice.class);
+        assertThat(points(eggs.open("q", "tq", egg.id(), egg.x(), egg.z()))).isEqualTo(Eggs.OPEN_POINTS);
     }
 
     @Test
     void droppedEggLiesNearbyAndExpiresUnlessPickedUp() {
         articles(3);
         var eggs = eggs(1);
-        eggs.tick();
-        var egg = eggs.snapshot().getFirst();
+        eggs.connect("p", "t");
+        eggs.connect("q", "tq");
+        var egg = eggs.snapshot("p").getFirst();
         eggs.open("p", "t", egg.id(), egg.x(), egg.z());
 
         var dropped = eggs.drop("p", 5, 5);
@@ -118,39 +159,48 @@ class EggsTest {
         assertThat(eggs.tick()).isEmpty();
         clock.addAndGet(SECOND);
         assertThat(eggs.tick()).extracting(Envelope::message).singleElement().isInstanceOf(EggGone.class);
-        assertThat(eggs.snapshot()).isEmpty();
+        assertThat(eggs.snapshot("q")).extracting(Eggs.EggView::id).doesNotContain(egg.id());
     }
 
     @Test
     void pickingUpADroppedEggCancelsItsExpiry() {
         articles(3);
         var eggs = eggs(1);
-        eggs.tick();
-        var egg = eggs.snapshot().getFirst();
+        eggs.connect("p", "t");
+        eggs.connect("q", "tq");
+        var egg = eggs.snapshot("p").getFirst();
         eggs.open("p", "t", egg.id(), egg.x(), egg.z());
         var view = ((EggSpawned) eggs.drop("p", 5, 5).getFirst().message()).egg();
 
         eggs.open("q", "tq", view.id(), view.x(), view.z());
         clock.addAndGet(Eggs.DROPPED_TTL_NANOS * 2);
         eggs.tick();
+        eggs.connect("r", "tr");
         var reDropped = ((EggSpawned) eggs.drop("q", 0, 0).getFirst().message()).egg();
 
         assertThat(reDropped.id()).isEqualTo(egg.id());
     }
 
     @Test
-    void openingGivesAPointOncePerPlayerPerEgg() {
-        articles(3);
+    void fullFieldMakesRoomForANewcomerWhenNobodyWantsAnOldEgg() {
+        articles(6);
         var eggs = eggs(1);
-        eggs.tick();
-        var egg = eggs.snapshot().getFirst();
+        eggs.connect("p", "t");
+        for (int i = 0; i < 10; i++) {
+            clock.addAndGet(INTERVAL);
+            eggs.tick();
+        }
+        var onField = eggs.snapshot("p").stream().map(Eggs.EggView::id).toList();
+        assertThat(onField).hasSize(Eggs.MAX_EGGS);
+        eggs.disconnect("p", 0, 0);
+        // Новий гравець уже знайшов усі статті, крім щойно доданої — поле повне яєць, які йому не потрібні.
+        library.forEach(a -> store.markSeen("tz", a.id()));
+        library.add(new Article("fresh", "Java", null, "Fresh", "Body"));
 
-        assertThat(points(eggs.open("p", "t", egg.id(), egg.x(), egg.z()))).isEqualTo(Eggs.OPEN_POINTS);
-        var dropped = ((EggSpawned) eggs.drop("p", egg.x(), egg.z()).getFirst().message()).egg();
-        // Викинув і підняв знову — очок більше немає; інший гравець — отримує.
-        assertThat(points(eggs.open("p", "t", dropped.id(), dropped.x(), dropped.z()))).isZero();
-        eggs.drop("p", egg.x(), egg.z());
-        assertThat(points(eggs.open("q", "tq", dropped.id(), dropped.x(), dropped.z()))).isEqualTo(Eggs.OPEN_POINTS);
+        eggs.connect("z", "tz");
+
+        assertThat(eggs.snapshot("z")).hasSize(1);
+        assertThat(eggs.snapshot("z").getFirst().id()).isNotIn(onField);
     }
 
     private static int points(List<Envelope> out) {
@@ -161,9 +211,9 @@ class EggsTest {
     void holdingOnlyOneEggAtATime() {
         articles(5);
         var eggs = eggs(2);
-        eggs.tick();
-        var first = eggs.snapshot().get(0);
-        var second = eggs.snapshot().get(1);
+        eggs.connect("p", "t");
+        var first = eggs.snapshot("p").get(0);
+        var second = eggs.snapshot("p").get(1);
         eggs.open("p", "t", first.id(), first.x(), first.z());
 
         assertThat(eggs.open("p", "t", second.id(), second.x(), second.z())).singleElement()
@@ -200,6 +250,19 @@ class EggsTest {
 
     private static final class FakeStore implements EggStore {
         final List<String[]> rows = new ArrayList<>();
+        final Set<String> seen = new HashSet<>();
+
+        @Override
+        public Set<String> seen(String token) {
+            var result = new HashSet<String>();
+            seen.stream().filter(k -> k.startsWith(token + "|")).forEach(k -> result.add(k.substring(token.length() + 1)));
+            return result;
+        }
+
+        @Override
+        public boolean markSeen(String token, String articleId) {
+            return seen.add(token + "|" + articleId);
+        }
 
         @Override
         public List<Collected> collection(String token) {

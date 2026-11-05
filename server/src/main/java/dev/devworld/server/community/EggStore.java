@@ -3,9 +3,11 @@ package dev.devworld.server.community;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
-/** Колекції золотих яєць: які статті зберіг кожен гравець (таблиця egg_collection). */
+/** Золоті яйця гравців: які статті вже знайшов (egg_seen) і які зберіг у колекцію (egg_collection). */
 public interface EggStore {
 
     record Collected(String articleId, long at) {
@@ -16,6 +18,12 @@ public interface EggStore {
 
     /** false — ця стаття вже була в колекції. */
     boolean add(String token, String articleId);
+
+    /** Статті, які гравець уже знайшов (відкрив яйце). */
+    Set<String> seen(String token);
+
+    /** Позначити статтю знайденою; false — уже знаходив раніше. */
+    boolean markSeen(String token, String articleId);
 
     @Component
     class Jdbc implements EggStore {
@@ -37,6 +45,21 @@ public interface EggStore {
         @Override
         public boolean add(String token, String articleId) {
             return jdbc.sql("insert into egg_collection (token, article_id) values (?, ?) on conflict do nothing")
+                    .params(token, articleId)
+                    .update() > 0;
+        }
+
+        @Override
+        public Set<String> seen(String token) {
+            return new HashSet<>(jdbc.sql("select article_id from egg_seen where token = ?")
+                    .param(token)
+                    .query(String.class)
+                    .list());
+        }
+
+        @Override
+        public boolean markSeen(String token, String articleId) {
+            return jdbc.sql("insert into egg_seen (token, article_id) values (?, ?) on conflict do nothing")
                     .params(token, articleId)
                     .update() > 0;
         }

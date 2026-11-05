@@ -138,6 +138,12 @@ button.primary {
   flex-direction: column;
   align-items: flex-start; /* підказка може бути ширшою за чат */
   gap: 6px;
+  /* Контейнер завширшки з підказку: порожнє місце праворуч від чату не повинно ловити кліки по полю. */
+  pointer-events: none;
+}
+
+.bottom-left-stack > :not(.hud) {
+  pointer-events: auto;
 }
 
 .bottom-left-stack .hud {

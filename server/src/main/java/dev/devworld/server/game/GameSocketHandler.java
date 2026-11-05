@@ -194,14 +194,17 @@ public class GameSocketHandler extends TextWebSocketHandler {
                 sanitizeName(msg.path("name").asString(""), id), gender, readAppearance(msg.path("appearance")));
         var info = result.player();
 
+        // Нові для гравця яйця кладемо до welcome, щоб він отримав їх разом з ним; іншим — оголошення нижче.
+        var newEggs = eggs.connect(id, result.token());
         send(session, new Welcome(id, result.token(), GameWorld.WORLD_SIZE, world.rules(), world.snapshot(),
-                Boards.ALL, eggs.snapshot()));
+                Boards.ALL, eggs.snapshot(id)));
         String group = world.groupOf(id);
         send(session, new Messages.ChatHistory(group, chat.history(group)));
         send(session, boards.connect(id, result.token()).message());
         send(session, eggs.collection(id, result.token()).message());
         broadcast(new Joined(info));
         sessions.put(id, session);
+        deliver(newEggs);
         log.info("Player joined: {} ({}), online={}", info.name(), id, sessions.size());
     }
 

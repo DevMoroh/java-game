@@ -18,16 +18,21 @@ import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
- * Золоті яйця: час від часу з'являються в випадкових місцях поля (не більше {@link #MAX_EGGS} одночасно).
- * Хто підійшов і відкрив яйце, читає статтю про розробку й або зберігає її в колекцію (яйце зникає), або викидає —
- * тоді яйце лягає поруч і через {@link #DROPPED_TTL_NANOS} зникає, якщо його ніхто не підбере. Поки яйце відкрите,
- * інші його не бачать.
+ * Золоті яйця: на полі лежать яйця зі статтями (не більше {@link #MAX_EGGS}, кожна стаття — щонайбільше одне яйце).
+ * Кожна стаття стає яйцем для гравця лише раз: відкрив яйце (зберіг чи викинув) — стаття для нього «знайдена»
+ * (egg_seen), таких яєць він більше не бачить і очок за них не отримує. Тож поки нових для гравця статей немає,
+ * яєць для нього теж немає.
+ * <p>
+ * Нові яйця — лише зі статей, яких ще не знаходив хтось із тих, хто зараз у грі: щойно прийшов гравець — одразу до
+ * {@code game.eggs.initial} яєць для нього, далі одне за {@code game.eggs.spawn-interval-seconds}. Викинуте яйце лягає
+ * поруч і через {@link #DROPPED_TTL_NANOS} зникає, якщо його не підбере той, хто цієї статті ще не бачив. Поки яйце
+ * відкрите, інші його не бачать.
  */
 @Component
 public class Eggs {
 
     public static final int MAX_EGGS = 5;
-    /** Очки за знайдене й відкрите яйце (незалежно від того, зберіг чи викинув). */
+    /** Очки за знайдену нову статтю (незалежно від того, зберіг чи викинув). */
     public static final int OPEN_POINTS = 1;
     /** З якої відстані можна підібрати яйце. */
     public static final double PICK_RANGE = 1.8;
@@ -56,7 +61,7 @@ public class Eggs {
     /**
      * Стаття для читання: {@code egg} — яйце, яке гравець зараз тримає (тоді можна зберегти чи викинути),
      * або null — читає зі своєї колекції; {@code collected} — стаття вже в колекції; {@code points} — скільки очок
-     * дали за це відкриття ({@link #OPEN_POINTS} за перше відкриття цього яйця цим гравцем, інакше 0).
+     * дали за це відкриття ({@link #OPEN_POINTS}, якщо гравець знайшов цю статтю вперше, інакше 0).
      */
     public record EggArticle(String type, String egg, Article article, boolean collected, int points) {
         public EggArticle(String egg, Article article, boolean collected, int points) {
@@ -79,8 +84,6 @@ public class Eggs {
         double x;
         double z;
         String heldBy;
-        /** Хто вже отримав очки за це яйце: викинути й підняти знову — без нових очок. */
-        final Set<String> rewarded = new HashSet<>();
         /** Коли зникне викинуте яйце (null — лежить, доки не підберуть). */
         Long expiresAtNanos;
 
@@ -96,20 +99,20 @@ public class Eggs {
         }
     }
 
+    /** Гравець у грі: які статті вже знайшов (спільне для всіх вкладок з тим самим профілем). */
+    private record Visitor(String token, Set<String> seen) {
+    }
+
     private final Map<String, Egg> eggs = new LinkedHashMap<>();
+    private final Map<String, Visitor> visitors = new LinkedHashMap<>();
     private final Articles articles;
     private final EggStore store;
     private final LongSupplier nanos;
     private final Random random;
     private final long spawnIntervalNanos;
+    /** Скільки яєць одразу покласти для гравця, що щойно прийшов. */
+    private final int initial;
     private long nextSpawnNanos;
-    /**
-     * Скільки яєць покласти одразу після старту (у тіку — коли схема БД уже накочена). Поки статей у БД немає,
-     * пробуємо знову раз на {@link #EMPTY_RETRY_NANOS}: статті можуть додати, поки сервер працює.
-     */
-    private int pendingInitial;
-    private long nextInitialTryNanos;
-    static final long EMPTY_RETRY_NANOS = 10_000_000_000L;
     private int seq;
 
     @Autowired
@@ -125,17 +128,35 @@ public class Eggs {
         this.nanos = nanos;
         this.random = random;
         this.spawnIntervalNanos = spawnIntervalNanos;
-        this.pendingInitial = Math.min(initial, MAX_EGGS);
-        this.nextInitialTryNanos = nanos.getAsLong();
+        this.initial = Math.min(initial, MAX_EGGS);
         this.nextSpawnNanos = nanos.getAsLong() + spawnIntervalNanos;
     }
 
-    /** Яйця, що лежать на полі (для нового гравця). */
-    public synchronized List<EggView> snapshot() {
-        return eggs.values().stream().filter(e -> e.heldBy == null).map(Egg::view).toList();
+    /**
+     * Гравець зайшов: запам'ятовуємо, що він уже знайшов, і, якщо для нього є нові статті, одразу кладемо до
+     * {@link #initial} яєць, які він побачить. Повертає оголошення цих яєць для інших гравців (сам він отримає їх
+     * у welcome через {@link #snapshot(String)}).
+     */
+    public synchronized List<Envelope> connect(String playerId, String token) {
+        visitors.put(playerId, new Visitor(token, store.seen(token)));
+        var out = new ArrayList<Envelope>();
+        long visible = eggs.values().stream().filter(e -> visibleTo(e, playerId)).count();
+        for (long i = visible; i < initial; i++) {
+            var egg = spawn(playerId);
+            if (egg == null) {
+                break;
+            }
+            out.addAll(announce(egg, playerId));
+        }
+        return out;
     }
 
-    /** Раз на секунду з ігрового циклу: нове яйце за розкладом і зникнення викинутих. */
+    /** Яйця на полі, які бачить цей гравець (нові для нього статті). */
+    public synchronized List<EggView> snapshot(String playerId) {
+        return eggs.values().stream().filter(e -> visibleTo(e, playerId)).map(Egg::view).toList();
+    }
+
+    /** Раз на секунду з ігрового циклу: зникнення викинутих і нове яйце за розкладом (якщо комусь у грі є що знайти). */
     public synchronized List<Envelope> tick() {
         long now = nanos.getAsLong();
         var out = new ArrayList<Envelope>();
@@ -146,25 +167,11 @@ public class Eggs {
             eggs.remove(egg.id);
             out.add(Envelope.everyone(new EggGone(egg.id)));
         }
-        if (pendingInitial > 0 && now - nextInitialTryNanos >= 0) {
-            nextInitialTryNanos = now + EMPTY_RETRY_NANOS;
-            while (pendingInitial > 0) {
-                var egg = spawn();
-                if (egg == null) {
-                    if (eggs.size() >= MAX_EGGS) {
-                        pendingInitial = 0;
-                    }
-                    break;
-                }
-                pendingInitial--;
-                out.add(Envelope.everyone(new EggSpawned(egg.view())));
-            }
-        }
         if (now - nextSpawnNanos >= 0) {
             nextSpawnNanos = now + spawnIntervalNanos;
-            var egg = spawn();
+            var egg = spawn(null);
             if (egg != null) {
-                out.add(Envelope.everyone(new EggSpawned(egg.view())));
+                out.addAll(announce(egg, null));
             }
         }
         return out;
@@ -175,6 +182,9 @@ public class Eggs {
         var egg = eggs.get(eggId);
         if (egg == null || egg.heldBy != null) {
             return List.of(new Envelope(playerId, new Notice("Someone already took this egg", false)));
+        }
+        if (seen(playerId, token).contains(egg.article.id())) {
+            return List.of(new Envelope(playerId, new Notice("You have already found this one", false)));
         }
         if (Math.hypot(x - egg.x, z - egg.z) > PICK_RANGE + PICK_TOLERANCE) {
             return List.of(new Envelope(playerId, new Notice("Walk up to the egg to open it", false)));
@@ -187,7 +197,9 @@ public class Eggs {
         boolean collected = store.collection(token).stream().anyMatch(c -> c.articleId().equals(egg.article.id()));
         // Свіжа версія з БД: статтю могли відредагувати через адмін-API, поки яйце лежало на полі.
         var article = articles.find(egg.article.id()).orElse(egg.article);
-        int points = egg.rewarded.add(token) ? OPEN_POINTS : 0;
+        int points = store.markSeen(token, egg.article.id()) ? OPEN_POINTS : 0;
+        // Знайдено — і для всіх вкладок цього профілю.
+        visitors.values().stream().filter(v -> v.token().equals(token)).forEach(v -> v.seen().add(egg.article.id()));
         return List.of(
                 Envelope.everyone(new EggGone(egg.id)),
                 new Envelope(playerId, new EggArticle(egg.id, article, collected, points)));
@@ -219,12 +231,15 @@ public class Eggs {
         egg.x = clamp(x + (random.nextDouble() - 0.5));
         egg.z = clamp(z + (random.nextDouble() - 0.5));
         egg.expiresAtNanos = nanos.getAsLong() + DROPPED_TTL_NANOS;
-        return List.of(Envelope.everyone(new EggSpawned(egg.view())));
+        // Бачать лише ті, хто цієї статті ще не знаходив (той, хто викинув, — уже знайшов).
+        return announce(egg, null);
     }
 
-    /** Гравець вийшов з яйцем у руках — воно падає там, де він стояв. */
+    /** Гравець вийшов; якщо з яйцем у руках — воно падає там, де він стояв. */
     public synchronized List<Envelope> disconnect(String playerId, double x, double z) {
-        return drop(playerId, x, z);
+        var out = drop(playerId, x, z);
+        visitors.remove(playerId);
+        return out;
     }
 
     /** Колекція гравця (при вході й після збереження). */
@@ -248,15 +263,24 @@ public class Eggs {
         return eggs.values().stream().filter(e -> playerId.equals(e.heldBy)).findFirst().orElse(null);
     }
 
-    /** Нове яйце зі статтею, якої зараз немає на полі; null — уже досить. */
-    private Egg spawn() {
-        if (eggs.size() >= MAX_EGGS) {
-            return null;
+    /**
+     * Нове яйце зі статтею, якої ще немає на полі й якої не знаходив {@code forPlayer} (або, коли null, — хтось у грі;
+     * беремо ту, що нова для найбільшої кількості гравців). Поле повне — звільняє місце від яйця, яке нікому в грі вже
+     * не потрібне. null — нема чого класти.
+     */
+    private Egg spawn(String forPlayer) {
+        var onField = new HashSet<String>();
+        eggs.values().forEach(e -> onField.add(e.article.id()));
+        var fresh = articles.all().stream().filter(a -> !onField.contains(a.id())).toList();
+        List<Article> choices;
+        if (forPlayer != null) {
+            var seen = visitors.get(forPlayer).seen();
+            choices = fresh.stream().filter(a -> !seen.contains(a.id())).toList();
+        } else {
+            int best = fresh.stream().mapToInt(this::wantedBy).max().orElse(0);
+            choices = best == 0 ? List.of() : fresh.stream().filter(a -> wantedBy(a) == best).toList();
         }
-        var taken = new HashSet<String>();
-        eggs.values().forEach(e -> taken.add(e.article.id()));
-        var choices = articles.all().stream().filter(a -> !taken.contains(a.id())).toList();
-        if (choices.isEmpty()) {
+        if (choices.isEmpty() || (eggs.size() >= MAX_EGGS && !evictUnwanted())) {
             return null;
         }
         var article = choices.get(random.nextInt(choices.size()));
@@ -272,6 +296,41 @@ public class Eggs {
         var egg = new Egg("egg-" + (++seq), article, x, z);
         eggs.put(egg.id, egg);
         return egg;
+    }
+
+    /** Скільки гравців у грі ще не знаходили цю статтю. */
+    private int wantedBy(Article article) {
+        return (int) visitors.values().stream().filter(v -> !v.seen().contains(article.id())).count();
+    }
+
+    /** Прибирає з повного поля яйце, якого ніхто в грі не бачить (усі вже знайшли); false — такого немає. */
+    private boolean evictUnwanted() {
+        var unwanted = eggs.values().stream()
+                .filter(e -> e.heldBy == null && wantedBy(e.article) == 0)
+                .findFirst();
+        unwanted.ifPresent(e -> eggs.remove(e.id));
+        return unwanted.isPresent();
+    }
+
+    /** Нове (або знову покладене) яйце — тим, хто в грі й ще не знаходив цієї статті; крім {@code except}. */
+    private List<Envelope> announce(Egg egg, String except) {
+        var out = new ArrayList<Envelope>();
+        for (var playerId : visitors.keySet()) {
+            if (!playerId.equals(except) && visibleTo(egg, playerId)) {
+                out.add(new Envelope(playerId, new EggSpawned(egg.view())));
+            }
+        }
+        return out;
+    }
+
+    private boolean visibleTo(Egg egg, String playerId) {
+        var visitor = visitors.get(playerId);
+        return egg.heldBy == null && visitor != null && !visitor.seen().contains(egg.article.id());
+    }
+
+    private Set<String> seen(String playerId, String token) {
+        var visitor = visitors.get(playerId);
+        return visitor != null ? visitor.seen() : store.seen(token);
     }
 
     private boolean freeSpot(double x, double z) {
