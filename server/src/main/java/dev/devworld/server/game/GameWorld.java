@@ -652,6 +652,16 @@ public class GameWorld implements SmartInitializingSingleton {
         }
     }
 
+    /** Нараховує очки (пост у скриньці, відкрите яйце); повертає оновлення для всіх або null, якщо гравця немає. */
+    public synchronized PlayerUpdate addScore(String id, int points) {
+        var p = players.get(id);
+        if (p == null) {
+            return null;
+        }
+        p.score = Math.max(0, p.score + points);
+        return update(p);
+    }
+
     private PlayerUpdate update(Player p) {
         var group = groups.groupOf(p.memberKey);
         return new PlayerUpdate(p.id, p.score, group == null ? null : group.id, circleColor(p), p.status);

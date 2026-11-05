@@ -1,5 +1,8 @@
 package dev.devworld.server.game;
 
+import dev.devworld.server.community.BoardMessages.BoardInfo;
+import dev.devworld.server.community.Eggs.EggView;
+
 import java.util.List;
 
 /** Повідомлення сервер → клієнт. Поле {@code type} визначає тип повідомлення. */
@@ -41,10 +44,15 @@ public final class Messages {
     public record MoveRules(int tickRate, double speed, double playerRadius, double boundary) {
     }
 
-    /** {@code token} — токен профілю: клієнт зберігає його й передає в наступному join, щоб повернутися тим самим персонажем. */
-    public record Welcome(String type, String selfId, String token, double worldSize, MoveRules rules, List<PlayerInfo> players) {
-        public Welcome(String selfId, String token, double worldSize, MoveRules rules, List<PlayerInfo> players) {
-            this("welcome", selfId, token, worldSize, rules, players);
+    /**
+     * {@code token} — токен профілю: клієнт зберігає його й передає в наступному join, щоб повернутися тим самим персонажем.
+     * {@code boards} — скриньки на полі; {@code eggs} — золоті яйця, що зараз лежать на полі.
+     */
+    public record Welcome(String type, String selfId, String token, double worldSize, MoveRules rules, List<PlayerInfo> players,
+                          List<BoardInfo> boards, List<EggView> eggs) {
+        public Welcome(String selfId, String token, double worldSize, MoveRules rules, List<PlayerInfo> players,
+                       List<BoardInfo> boards, List<EggView> eggs) {
+            this("welcome", selfId, token, worldSize, rules, players, boards, eggs);
         }
     }
 
@@ -126,9 +134,17 @@ public final class Messages {
         }
     }
 
-    public record State(String type, long tick, List<PlayerPos> players) {
-        public State(long tick, List<PlayerPos> players) {
-            this("state", tick, players);
+    /** Тварина на полі: {@code hopping} — зараз у стрибку (висоту клієнт малює сам). */
+    public record AnimalPos(String id, double x, double z, double rotation, boolean hopping) {
+    }
+
+    /** NPC на полі: {@code action} — walk / run / dance (анімацію клієнт малює сам). */
+    public record NpcPos(String id, double x, double z, double rotation, String action) {
+    }
+
+    public record State(String type, long tick, List<PlayerPos> players, List<AnimalPos> animals, List<NpcPos> npcs) {
+        public State(long tick, List<PlayerPos> players, List<AnimalPos> animals, List<NpcPos> npcs) {
+            this("state", tick, players, animals, npcs);
         }
     }
 }

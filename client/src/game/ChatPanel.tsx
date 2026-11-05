@@ -22,7 +22,7 @@ export function ChatPanel({ client }: { client: GameClient }) {
   // Enter у грі — перейти до чату.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'Enter' && !(e.target instanceof HTMLInputElement)) {
+      if (e.code === 'Enter' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
         e.preventDefault()
         input.current?.focus()
       }

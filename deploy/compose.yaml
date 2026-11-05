@@ -31,7 +31,12 @@ services:
       SPRING_DATASOURCE_USERNAME: devworld
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       GAME_ALLOWED_ORIGINS: https://${DOMAIN:?задай DOMAIN у .env}
-    # Назовні не публікуємо: до застосунку ходить лише Caddy.
+      # Токен закритого API статей яєць; порожній — API вимкнений.
+      GAME_ADMIN_TOKEN: ${GAME_ADMIN_TOKEN:-}
+    # Назовні не публікуємо: з інтернету до застосунку ходить лише Caddy. Порт на 127.0.0.1 — для генератора
+    # статей яєць на цьому ж сервері (deploy/eggs).
+    ports:
+      - "127.0.0.1:8081:8080"
 
   caddy:
     image: caddy:2

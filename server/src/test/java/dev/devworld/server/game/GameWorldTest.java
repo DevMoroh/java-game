@@ -746,4 +746,14 @@ class GameWorldTest {
     private static double distance(PlayerInfo a, PlayerInfo b) {
         return Math.hypot(a.x() - b.x(), a.z() - b.z());
     }
+
+    @Test
+    void addScoreUpdatesThePlayerAndNeverGoesBelowZero() {
+        var world = new GameWorld(20, () -> 0L);
+        world.join("a", "Ann", Gender.FEMALE);
+
+        assertThat(world.addScore("a", 1).score()).isEqualTo(1);
+        assertThat(world.addScore("a", -5).score()).isZero();
+        assertThat(world.addScore("missing", 1)).isNull();
+    }
 }

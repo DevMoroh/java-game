@@ -1,5 +1,8 @@
 package dev.devworld.server.game;
 
+import dev.devworld.server.community.Boards;
+import dev.devworld.server.community.Eggs;
+import dev.devworld.server.community.Envelope;
 import dev.devworld.server.game.Messages.Joined;
 import dev.devworld.server.game.Messages.Left;
 import dev.devworld.server.game.Messages.Welcome;
@@ -16,6 +19,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,6 +35,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * {"type":"groupLeave"}                         // назад у загальний чат
  * {"type":"chat",       "text":"Привіт!"}       // повідомлення в свій чат (груповий або загальний)
  * {"type":"status",     "text":"🎧 Слухаю музику"}                      // статус ("" — прибрати)
+ * {"type":"boardOpen",  "board":"reviews"}     // відкрити скриньку, біля якої стоїш
+ * {"type":"boardClose"}                         // закрити її
+ * {"type":"boardSubscribe", "board":"reviews", "on":true}  // приєднатися до скриньки / вийти з неї
+ * {"type":"boardMute",  "board":"reviews", "muted":true}  // вимкнути / увімкнути для себе звук нових повідомлень
+ * {"type":"boardPost",  "text":"…"}             // пост у відкриту скриньку
+ * {"type":"boardThread", "post":12}             // коментарі до поста
+ * {"type":"boardComment", "post":12, "text":"…"}  // коментар до поста
+ * {"type":"eggOpen",    "egg":"egg-3"}          // підібрати яйце поруч і прочитати
+ * {"type":"eggKeep"} / {"type":"eggDrop"}       // зберегти в колекцію / викинути
+ * {"type":"eggRead",    "article":"…"}          // перечитати статтю зі своєї колекції
  * </pre>
  */
 @Component
@@ -41,13 +55,17 @@ public class GameSocketHandler extends TextWebSocketHandler {
 
     private final GameWorld world;
     private final Chat chat;
+    private final Boards boards;
+    private final Eggs eggs;
     private final ObjectMapper json;
     /** Лише сесії, що вже виконали join. Ключ — id гравця (= id сесії). */
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
 
-    public GameSocketHandler(GameWorld world, Chat chat, ObjectMapper json) {
+    public GameSocketHandler(GameWorld world, Chat chat, Boards boards, Eggs eggs, ObjectMapper json) {
         this.world = world;
         this.chat = chat;
+        this.boards = boards;
+        this.eggs = eggs;
         this.json = json;
     }
 
@@ -60,6 +78,16 @@ public class GameSocketHandler extends TextWebSocketHandler {
             return;
         }
         String id = session.getId();
+        try {
+            handle(session, id, msg);
+        } catch (RuntimeException e) {
+            // Напр. база недоступна: гравця не відключаємо, лише кажемо, що не вийшло.
+            log.error("Failed to handle {} from {}", msg.path("type").asString(""), id, e);
+            sendTo(id, new Messages.Notice("Something went wrong, try again", false));
+        }
+    }
+
+    private void handle(WebSocketSession session, String id, JsonNode msg) {
         switch (msg.path("type").asString("")) {
             case "join" -> join(session, msg);
             case "input" -> world.applyInput(id, msg.path("seq").asLong(0),
@@ -98,6 +126,58 @@ public class GameSocketHandler extends TextWebSocketHandler {
                     broadcast(new Messages.Slap(result.slapperId(), result.targetId(), result.allyId()));
                 }
             }
+            case "boardOpen" -> {
+                var p = world.player(id);
+                if (p != null) {
+                    deliver(boards.open(id, msg.path("board").asString(""), p.x(), p.z()));
+                }
+            }
+            case "boardClose" -> boards.close(id);
+            case "boardSubscribe" -> deliver(boards.subscribe(id, msg.path("board").asString(""), msg.path("on").asBoolean(true)));
+            case "boardMute" -> deliver(boards.mute(id, msg.path("board").asString(""), msg.path("muted").asBoolean(true)));
+            case "boardPost" -> {
+                var p = world.player(id);
+                if (p != null) {
+                    var out = boards.post(id, p.name(), msg.path("text").asString(""));
+                    deliver(out);
+                    reward(id, Boards.published(out) ? Boards.MESSAGE_POINTS : 0);
+                }
+            }
+            case "boardThread" -> deliver(boards.thread(id, msg.path("post").asLong(0)));
+            case "boardComment" -> {
+                var p = world.player(id);
+                if (p != null) {
+                    var out = boards.comment(id, p.name(), msg.path("post").asLong(0), msg.path("text").asString(""));
+                    deliver(out);
+                    reward(id, Boards.published(out) ? Boards.MESSAGE_POINTS : 0);
+                }
+            }
+            case "eggOpen" -> {
+                var p = world.player(id);
+                if (p != null) {
+                    var out = eggs.open(id, world.profileToken(id), msg.path("egg").asString(""), p.x(), p.z());
+                    deliver(out);
+                    reward(id, out.stream().mapToInt(e -> e.message() instanceof Eggs.EggArticle a ? a.points() : 0).sum());
+                }
+            }
+            case "eggKeep" -> {
+                String token = world.profileToken(id);
+                if (token != null) {
+                    deliver(eggs.keep(id, token));
+                }
+            }
+            case "eggDrop" -> {
+                var p = world.player(id);
+                if (p != null) {
+                    deliver(eggs.drop(id, p.x(), p.z()));
+                }
+            }
+            case "eggRead" -> {
+                String token = world.profileToken(id);
+                if (token != null) {
+                    deliver(eggs.read(id, token, msg.path("article").asString("")));
+                }
+            }
             default -> { /* невідомі повідомлення ігноруємо */ }
         }
     }
@@ -114,9 +194,12 @@ public class GameSocketHandler extends TextWebSocketHandler {
                 sanitizeName(msg.path("name").asString(""), id), gender, readAppearance(msg.path("appearance")));
         var info = result.player();
 
-        send(session, new Welcome(id, result.token(), GameWorld.WORLD_SIZE, world.rules(), world.snapshot()));
+        send(session, new Welcome(id, result.token(), GameWorld.WORLD_SIZE, world.rules(), world.snapshot(),
+                Boards.ALL, eggs.snapshot()));
         String group = world.groupOf(id);
         send(session, new Messages.ChatHistory(group, chat.history(group)));
+        send(session, boards.connect(id, result.token()).message());
+        send(session, eggs.collection(id, result.token()).message());
         broadcast(new Joined(info));
         sessions.put(id, session);
         log.info("Player joined: {} ({}), online={}", info.name(), id, sessions.size());
@@ -152,6 +235,27 @@ public class GameSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /** Нарахувати очки й показати всім новий рахунок (0 — нічого не робить). */
+    private void reward(String id, int points) {
+        if (points > 0) {
+            var update = world.addScore(id, points);
+            if (update != null) {
+                broadcast(update);
+            }
+        }
+    }
+
+    /** Розіслати повідомлення адресатам ({@link Envelope#to()} == null — усім). */
+    public void deliver(List<Envelope> envelopes) {
+        for (var e : envelopes) {
+            if (e.to() == null) {
+                broadcast(e.message());
+            } else {
+                sendTo(e.to(), e.message());
+            }
+        }
+    }
+
     private void sendTo(String id, Object message) {
         var session = sessions.get(id);
         if (session != null) {
@@ -176,6 +280,11 @@ public class GameSocketHandler extends TextWebSocketHandler {
         String id = session.getId();
         sessions.remove(id);
         chat.forget(id);
+        boards.disconnect(id);
+        var player = world.player(id);
+        if (player != null) {
+            deliver(eggs.disconnect(id, player.x(), player.z()));
+        }
         if (world.leave(id)) {
             broadcast(new Left(id));
             log.info("Player left: {}, online={}", id, sessions.size());

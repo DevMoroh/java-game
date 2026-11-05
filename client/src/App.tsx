@@ -1,11 +1,15 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { Game } from './game/Game'
+import { ArticleModal } from './game/ArticleModal'
+import { BoardPanel } from './game/BoardPanel'
 import { ChatPanel } from './game/ChatPanel'
+import { CollectionPanel } from './game/CollectionPanel'
 import { GameClient } from './game/GameClient'
 import { HandshakePrompt } from './game/HandshakePrompt'
 import { Leaderboard } from './game/Leaderboard'
 import { ChatPrompts } from './game/ChatPrompts'
 import { PlayerPanel } from './game/PlayerPanel'
+import { messageSoundOn, setMessageSoundOn, subscribeMessageSound } from './game/messageSound'
 import { clearSession, loadSession, type Session } from './game/session'
 import type { Gender } from './game/types'
 
@@ -110,17 +114,21 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
           </button>
         </div>
         <PlayerPanel client={client} />
+        <CollectionPanel client={client} />
       </div>
+      <MessageSoundToggle />
       <Leaderboard client={client} />
       <ChatPrompts client={client} />
       {/* Чат і підказка — одним стовпчиком: так вони не налазять одне на одного за будь-якої висоти. */}
       <div className="bottom-left-stack">
         <ChatPanel client={client} />
         <div className="hud hint muted">
-          WASD / click on grass — move · Space — jump · H — handshake · F — slap · Enter — chat · wheel — zoom
+          WASD / click — move · E — open box / egg · Space — jump · H — handshake · F — slap · Enter — chat · wheel — zoom
         </div>
       </div>
       <HandshakePrompt client={client} />
+      <BoardPanel client={client} />
+      <ArticleModal client={client} />
       <div className="actions">
         <ActionButton className="shake" title="Offer a handshake / accept an offered one (H)" onClick={() => client.handshake()}>
           🤝 Handshake <kbd>H</kbd>
@@ -147,6 +155,23 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
         </div>
       )}
     </>
+  )
+}
+
+/** Зверху по центру: вимкнути для себе звук нових повідомлень одразу в усіх скриньках. */
+function MessageSoundToggle() {
+  const on = useSyncExternalStore(subscribeMessageSound, messageSoundOn)
+  return (
+    <button
+      className={`message-sound-toggle ${on ? '' : 'off'}`}
+      title={on ? 'Mute new message sounds in all boxes' : 'Turn new message sounds back on'}
+      onClick={(e) => {
+        setMessageSoundOn(!on)
+        e.currentTarget.blur()
+      }}
+    >
+      {on ? '🔔' : '🔕'} <span className="label">Message sounds {on ? 'on' : 'off'}</span>
+    </button>
   )
 }
 

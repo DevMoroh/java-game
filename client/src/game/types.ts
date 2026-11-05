@@ -39,11 +39,120 @@ export interface PlayerPos {
   lastSeq: number
 }
 
+/** Кролик (чи інша тварина): hopping — зараз у стрибку. */
+/** NPC на полі (танцівниця): що зараз робить — анімацію клієнт малює сам. */
+export interface NpcPos {
+  id: string
+  x: number
+  z: number
+  rotation: number
+  action: 'walk' | 'run' | 'dance'
+}
+
+export interface AnimalPos {
+  id: string
+  x: number
+  z: number
+  rotation: number
+  hopping: boolean
+}
+
+/** Скринька на полі: тематична дошка з постами. anonymous — усі пости й коментарі без імен. */
+export interface BoardInfo {
+  id: string
+  title: string
+  description: string
+  anonymous: boolean
+  x: number
+  z: number
+}
+
+/** Пост у скриньці; author === null — анонімно; lastActivity — id найсвіжішого запису (пост або коментар). */
+export interface BoardPost {
+  id: number
+  author: string | null
+  mine: boolean
+  text: string
+  at: number
+  comments: number
+  lastActivity: number
+}
+
+export interface BoardComment {
+  id: number
+  author: string | null
+  mine: boolean
+  text: string
+  at: number
+}
+
+/** Відкрита скринька. lastRead — до якого id було прочитано до відкриття (null — не приєднаний). */
+export interface OpenBoard {
+  board: string
+  joined: boolean
+  lastRead: number | null
+  posts: BoardPost[]
+  /** Розгорнуті пости → їхні коментарі (undefined — ще вантажаться). */
+  threads: Record<number, BoardComment[] | undefined>
+}
+
+/** Золоте яйце на полі; dropped — його викинули, скоро зникне. */
+export interface EggView {
+  id: string
+  x: number
+  z: number
+  color: string
+  dropped: boolean
+}
+
+export interface Article {
+  id: string
+  topic: string
+  color: string
+  title: string
+  body: string
+}
+
+/** Стаття, яку читаю: egg — яйце в руках (можна зберегти чи викинути) або null — з колекції. */
+export interface OpenArticle {
+  egg: string | null
+  article: Article
+  collected: boolean
+  /** Скільки очок дали за це відкриття (+1 за перше відкриття яйця, інакше 0). */
+  points: number
+}
+
+export interface CollectionItem {
+  articleId: string
+  title: string
+  topic: string
+  color: string
+  at: number
+}
+
 export type ServerMessage =
-  | { type: 'welcome'; selfId: string; token: string; worldSize: number; rules: MoveRules; players: PlayerInfo[] }
+  | {
+      type: 'welcome'
+      selfId: string
+      token: string
+      worldSize: number
+      rules: MoveRules
+      players: PlayerInfo[]
+      boards: BoardInfo[]
+      eggs: EggView[]
+    }
   | { type: 'joined'; player: PlayerInfo }
   | { type: 'left'; id: string }
-  | { type: 'state'; tick: number; players: PlayerPos[] }
+  | { type: 'state'; tick: number; players: PlayerPos[]; animals: AnimalPos[]; npcs: NpcPos[] }
+  | { type: 'boardStatus'; joined: string[]; unread: Record<string, number>; muted: string[] }
+  | { type: 'boardOpened'; board: string; joined: boolean; lastRead: number | null; posts: BoardPost[] }
+  | { type: 'boardThread'; board: string; post: number; comments: BoardComment[] }
+  | { type: 'boardPost'; board: string; post: BoardPost }
+  | { type: 'boardComment'; board: string; post: number; comment: BoardComment; comments: number }
+  | { type: 'eggSpawn'; egg: EggView }
+  | { type: 'eggGone'; id: string }
+  | ({ type: 'eggArticle' } & OpenArticle)
+  | { type: 'eggCollection'; items: CollectionItem[]; total: number }
   | GameEvent
   | { type: 'playerUpdate'; id: string; score: number; group: string | null; color: string; status: string }
   | { type: 'chatHistory'; group: string | null; messages: ChatMessage[] }
@@ -73,6 +182,25 @@ export type GameEvent =
   | HandshakeEvent
   | NoticeEvent
   | ChatEvent
+  | ScoreGainEvent
+  | BoardNotifyEvent
+
+/** У скриньку, до якої я приєднався, прийшло нове (лічильник непрочитаного зріс) — анімація й звук. */
+export interface BoardNotifyEvent {
+  type: 'boardNotify'
+  board: string
+  /** Скільки тепер непрочитаного. */
+  unread: number
+  /** Я вимкнув звук цієї скриньки. */
+  muted: boolean
+}
+
+/** Гравець отримав очки (рукостискання, пост у скриньці, відкрите яйце) — звук і анімація. */
+export interface ScoreGainEvent {
+  type: 'scoreGain'
+  id: string
+  delta: number
+}
 
 /** Нове повідомлення в моєму чаті (груповому або загальному). */
 export interface ChatEvent extends ChatMessage {

@@ -9,6 +9,8 @@ import type { PlayerInfo } from './types'
 const SMOOTHING = 12 // чим більше, тим швидше рендер догоняє серверну позицію інших гравців
 /** Радіус кола під гравцем; як Groups.CIRCLE_RADIUS на сервері. */
 export const CIRCLE_RADIUS = 1.6
+/** Скільки розходиться золоте кільце за отримані очки. */
+const BURST_SECONDS = 0.9
 
 interface Props {
   info: PlayerInfo
@@ -21,6 +23,9 @@ export function Character({ info, client, isSelf }: Props) {
   const root = useRef<THREE.Group>(null!)
   const init = useRef(false)
   const avatar = useAvatar(info.gender, info.appearance, client.rules.speed)
+  // Золоте кільце, що розходиться по траві, коли гравець отримав очки (0 — немає).
+  const burst = useRef<THREE.Mesh>(null!)
+  const burstAge = useRef(-1)
 
   // Підпис прив'язаний до моделі, а не до кореня, — щоб летів разом зі стрибком.
   useEffect(() => {
@@ -42,6 +47,9 @@ export function Character({ info, client, isSelf }: Props) {
       }),
       client.on('slapImpact', (e) => {
         if (e.to === info.id && !e.dodged) animator.play('Hit_Head')
+      }),
+      client.on('scoreGain', (e) => {
+        if (e.id === info.id) burstAge.current = 0
       }),
       client.on('handshake', (e) => {
         const partner = e.from === info.id ? e.to : e.to === info.id ? e.from : null
@@ -70,6 +78,16 @@ export function Character({ info, client, isSelf }: Props) {
     }
     g.rotation.y += shortestAngle(g.rotation.y, pos.rotation) * k
     avatar.animator.update(dt, pos.moving)
+
+    const b = burst.current
+    if (burstAge.current >= 0) {
+      burstAge.current += dt
+      const t = burstAge.current / BURST_SECONDS
+      if (t >= 1) burstAge.current = -1
+      b.visible = t < 1
+      b.scale.setScalar(0.6 + Math.sqrt(t) * 3.4) // швидко вилітає, далі сповільнюється — до ~3.5 м
+      ;(b.material as THREE.MeshBasicMaterial).opacity = 1 - t * t
+    } else b.visible = false
   })
 
   return (
@@ -96,6 +114,10 @@ export function Character({ info, client, isSelf }: Props) {
           <meshBasicMaterial color="#ffffff" transparent opacity={0.85} depthWrite={false} />
         </mesh>
       )}
+      <mesh ref={burst} rotation-x={-Math.PI / 2} position-y={0.05} visible={false} renderOrder={2}>
+        <ringGeometry args={[0.7, 1.05, 64]} />
+        <meshBasicMaterial color="#ffc21a" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} />
+      </mesh>
       <primitive object={avatar.object} />
     </group>
   )

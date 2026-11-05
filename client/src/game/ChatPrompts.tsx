@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { CIRCLE_RADIUS } from './Character'
 import type { GameClient } from './GameClient'
+import { ObjectPrompt } from './ObjectPrompt'
 
 const NOTICE_MS = 3_500
 /** Як часто перевіряти, чи стоїш у чужому колі (позиції змінюються щокадру, але кнопці стільки не треба). */
@@ -11,8 +12,8 @@ const NEARBY_GRACE_MS = 2000
 let noticeSeq = 0
 
 /**
- * Внизу екрана: «Поруч X — Приєднатися до чату», коли стоїш у колі гравця, з яким ти ще не в одному чаті,
- * і короткі повідомлення про результат.
+ * Внизу екрана: «Відкрити» біля скриньки чи яйця; «Поруч X — Приєднатися до чату», коли стоїш у колі гравця,
+ * з яким ти ще не в одному чаті; і короткі повідомлення про результат.
  */
 export function ChatPrompts({ client }: { client: GameClient }) {
   const [notices, setNotices] = useState<{ id: number; text: string; ok: boolean }[]>([])
@@ -28,9 +29,9 @@ export function ChatPrompts({ client }: { client: GameClient }) {
     [client],
   )
 
-  if (!nearby && notices.length === 0) return null
   return (
     <div className="team-prompts">
+      <ObjectPrompt client={client} />
       {nearby && (
         <div className="team-card">
           <span className="color-dot" style={{ background: nearby.color }} />

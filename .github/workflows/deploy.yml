@@ -126,6 +126,10 @@ jobs:
           SSH="ssh -i ~/.ssh/id_deploy -p $VPS_PORT $VPS_USER@$VPS_HOST"
           # Конфіги з репозиторію — джерело правди; .env із секретами живе лише на сервері.
           scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/compose.yaml deploy/Caddyfile "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
+          # Генератор статей золотих яєць (запускає cron на сервері, див. README → Золоті яйця).
+          $SSH "mkdir -p '$DEPLOY_PATH/eggs/prompts'"
+          scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/eggs/generate.py "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/eggs/"
+          scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/eggs/prompts/*.md "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/eggs/prompts/"
           echo "$GHCR_TOKEN" | $SSH "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
           $SSH "set -e
             cd '$DEPLOY_PATH'

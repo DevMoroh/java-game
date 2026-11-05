@@ -2,11 +2,15 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Suspense, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import * as THREE from 'three'
 import { preloadAvatarAssets } from './avatar/useAvatar'
+import { BoardLabels } from './BoardLabels'
 import { Character } from './Character'
+import { Eggs, Mailboxes, Rabbits } from './FieldObjects'
+import { Npcs } from './Dancer'
 import type { GameClient } from './GameClient'
 import { NameplateProjector, Nameplates } from './Nameplates'
 import { subscribeSounds } from './effects'
 import { createGrassTexture, seededRandom } from './textures'
+import type { BoardInfo } from './types'
 
 preloadAvatarAssets()
 
@@ -17,6 +21,7 @@ const MAX_ZOOM = 2.2
 
 export function Game({ client }: { client: GameClient }) {
   const players = useSyncExternalStore(client.subscribe, client.getPlayers)
+  const boards = useSyncExternalStore(client.subscribe, client.getBoards)
   useKeyboard(client)
   useEffect(() => subscribeSounds(client), [client])
 
@@ -29,7 +34,13 @@ export function Game({ client }: { client: GameClient }) {
         <LocalPlayerDriver client={client} />
         <CameraRig client={client} />
         <Ground client={client} />
-        <Decorations size={client.worldSize} />
+        <Decorations size={client.worldSize} boards={boards} />
+        <Mailboxes client={client} />
+        <Eggs client={client} />
+        <Rabbits client={client} />
+        <Suspense fallback={null}>
+          <Npcs client={client} />
+        </Suspense>
         {players.map((p) => (
           // Окремий Suspense на кожного: поки вантажаться моделі, решта сцени вже малюється.
           <Suspense key={p.id} fallback={null}>
@@ -39,6 +50,7 @@ export function Game({ client }: { client: GameClient }) {
         <NameplateProjector />
       </Canvas>
       <Nameplates players={players} client={client} />
+      <BoardLabels client={client} />
     </>
   )
 }
@@ -146,14 +158,15 @@ function Ground({ client }: { client: GameClient }) {
   )
 }
 
-/** Дерева, каміння й квіти. Сід фіксований — у всіх гравців однакова карта. */
-function Decorations({ size }: { size: number }) {
+/** Дерева, каміння й квіти. Сід фіксований — у всіх гравців однакова карта. Біля скриньок — вільно. */
+function Decorations({ size, boards }: { size: number; boards: BoardInfo[] }) {
   const items = useMemo(() => {
     const rnd = seededRandom(42)
     const half = size / 2 - 2
     const trees: { x: number; z: number; s: number }[] = []
     const rocks: { x: number; z: number; s: number; r: number }[] = []
     const flowers: { x: number; z: number; c: string }[] = []
+    const nearBoard = (x: number, z: number) => boards.some((b) => Math.hypot(x - b.x, z - b.z) < 3)
     const away = (x: number, z: number) => Math.hypot(x, z) > 14 // порожня зона спавну
     while (trees.length < 45) {
       const x = (rnd() * 2 - 1) * half
@@ -173,8 +186,13 @@ function Decorations({ size }: { size: number }) {
         c: colors[(rnd() * colors.length) | 0],
       })
     }
-    return { trees, rocks, flowers }
-  }, [size])
+    // Відкидаємо вже після генерації: решта карти лишається такою ж, як без скриньок.
+    return {
+      trees: trees.filter((t) => !nearBoard(t.x, t.z)),
+      rocks: rocks.filter((r) => !nearBoard(r.x, r.z)),
+      flowers,
+    }
+  }, [size, boards])
 
   return (
     <group>
@@ -226,7 +244,7 @@ function useKeyboard(client: GameClient) {
       client.keys.z = dz / len
     }
     const down = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.code === 'KeyF') {
         if (!e.repeat) client.slap()
         return

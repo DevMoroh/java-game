@@ -2,7 +2,22 @@ import { LocalPlayer } from './LocalPlayer'
 import type { MoveRules, Vec } from './movement'
 import { JUMP_DURATION } from './jump'
 import { saveSession, type Session } from './session'
-import type { ChatLine, ChatMessage, GameEvent, Gender, PlayerInfo, PlayerPos, ServerMessage } from './types'
+import type {
+  AnimalPos,
+  NpcPos,
+  BoardInfo,
+  ChatLine,
+  ChatMessage,
+  CollectionItem,
+  EggView,
+  GameEvent,
+  Gender,
+  OpenArticle,
+  OpenBoard,
+  PlayerInfo,
+  PlayerPos,
+  ServerMessage,
+} from './types'
 
 /** ?lag=200 в адресі — штучна затримка (мс туди й назад) для перевірки гри на повільній мережі. */
 const SIMULATED_LAG_MS = Number(new URLSearchParams(location.search).get('lag')) || 0
@@ -16,6 +31,20 @@ type EventOf<T extends GameEvent['type']> = Extract<GameEvent, { type: T }>
 const CHAT_LINES = 200
 
 export type Status = 'connecting' | 'online' | 'closed'
+
+/** До яких скриньок я приєднався і скільки в кожній непрочитаного. */
+export interface BoardStatus {
+  joined: string[]
+  unread: Record<string, number>
+  /** Скриньки, де я вимкнув звук нових повідомлень. */
+  muted: string[]
+}
+
+export interface EggCollection {
+  items: CollectionItem[]
+  /** Скільки всього статей існує. */
+  total: number
+}
 
 /**
  * WebSocket-клієнт і локальна копія світу.
@@ -34,12 +63,23 @@ export class GameClient {
   readonly keys: Vec = { x: 0, z: 0 }
   /** Останні серверні позиції всіх гравців (для свого — лише для звірки). */
   readonly positions = new Map<string, PlayerPos>()
+  /** Позиції кроликів — як positions, читаються щокадру. */
+  readonly animals = new Map<string, AnimalPos>()
+  readonly npcs = new Map<string, NpcPos>()
 
   private players: PlayerInfo[] = []
   private chat: ChatLine[] = []
   private chatKey = 0
   /** Груповий чат, який зараз показуємо, або null — загальний. */
   private chatGroup: string | null = null
+  private boards: BoardInfo[] = []
+  private boardStatus: BoardStatus = { joined: [], unread: {}, muted: [] }
+  private openBoard: OpenBoard | null = null
+  /** Скринька, яку я попросив відкрити (відповідь сервера на іншу ігноруємо). */
+  private wantedBoard: string | null = null
+  private eggs: EggView[] = []
+  private article: OpenArticle | null = null
+  private collection: EggCollection = { items: [], total: 0 }
   private readonly listeners = new Set<() => void>()
   private readonly eventListeners = new Map<GameEvent['type'], Set<(e: GameEvent) => void>>()
   private lastSlapAt = -Infinity
@@ -68,6 +108,92 @@ export class GameClient {
   getStatus = () => this.status
   getChat = () => this.chat
   getChatGroup = () => this.chatGroup
+  getBoards = () => this.boards
+  getBoardStatus = () => this.boardStatus
+  getOpenBoard = () => this.openBoard
+  getEggs = () => this.eggs
+  getArticle = () => this.article
+  getCollection = () => this.collection
+
+  /** Відкрити скриньку, біля якої стою. */
+  openBoardById(id: string) {
+    this.wantedBoard = id
+    this.send({ type: 'boardOpen', board: id })
+  }
+
+  closeBoard() {
+    this.wantedBoard = null
+    this.openBoard = null
+    this.send({ type: 'boardClose' })
+    this.emit()
+  }
+
+  /** Приєднатися до скриньки (лічильник нового над нею на карті) або вийти з неї. */
+  setBoardJoined(id: string, on: boolean) {
+    this.send({ type: 'boardSubscribe', board: id, on })
+  }
+
+  /** Вимкнути / увімкнути для себе звук нових повідомлень скриньки (анімація лишається). */
+  setBoardMuted(id: string, muted: boolean) {
+    this.send({ type: 'boardMute', board: id, muted })
+  }
+
+  postToBoard(text: string) {
+    const clean = text.trim()
+    if (clean) this.send({ type: 'boardPost', text: clean })
+  }
+
+  commentOnPost(post: number, text: string) {
+    const clean = text.trim()
+    if (clean) this.send({ type: 'boardComment', post, text: clean })
+  }
+
+  /** Розгорнути пост (завантажити коментарі) або згорнути. */
+  toggleThread(post: number) {
+    const open = this.openBoard
+    if (!open) return
+    const threads = { ...open.threads }
+    if (post in threads) delete threads[post]
+    else {
+      threads[post] = undefined
+      this.send({ type: 'boardThread', post })
+    }
+    this.openBoard = { ...open, threads }
+    this.emit()
+  }
+
+  /** Підібрати яйце поруч і прочитати статтю. */
+  openEgg(id: string) {
+    this.send({ type: 'eggOpen', egg: id })
+  }
+
+  /** Зберегти статтю яйця, яке тримаю, у колекцію. */
+  keepEgg() {
+    this.send({ type: 'eggKeep' })
+    this.article = null
+    this.emit()
+  }
+
+  /** Викинути яйце, яке тримаю: ляже поруч, і хтось інший зможе підібрати. */
+  dropEgg() {
+    this.send({ type: 'eggDrop' })
+    this.article = null
+    this.emit()
+  }
+
+  /** Перечитати статтю з колекції. */
+  readArticle(id: string) {
+    this.send({ type: 'eggRead', article: id })
+  }
+
+  /** Закрити статтю; яйце в руках при цьому викидається. */
+  closeArticle() {
+    if (this.article?.egg) this.dropEgg()
+    else {
+      this.article = null
+      this.emit()
+    }
+  }
 
   sendChat(text: string) {
     const clean = text.trim()
@@ -148,6 +274,8 @@ export class GameClient {
         this.rules = msg.rules
         this.status = 'online'
         this.players = msg.players
+        this.boards = msg.boards
+        this.eggs = msg.eggs
         msg.players.forEach((p) => this.positions.set(p.id, { ...p, moving: false, lastSeq: 0 }))
         const self = msg.players.find((p) => p.id === msg.selfId)!
         saveSession({ token: msg.token, name: self.name, gender: self.gender, appearance: self.appearance })
@@ -179,8 +307,70 @@ export class GameClient {
         }
         // Звіряємось після оновлення всіх, щоб переграти введення з актуальними позиціями інших.
         if (self) this.local?.reconcile(self)
+        for (const a of msg.animals ?? []) this.animals.set(a.id, a)
+        for (const n of msg.npcs ?? []) this.npcs.set(n.id, n)
         break
       }
+      case 'boardStatus': {
+        const before = this.boardStatus
+        this.boardStatus = { joined: msg.joined, unread: msg.unread, muted: msg.muted ?? [] }
+        this.emit()
+        for (const [board, unread] of Object.entries(msg.unread)) {
+          if (unread > (before.unread[board] ?? 0) && before.joined.includes(board)) {
+            this.dispatch({ type: 'boardNotify', board, unread, muted: this.boardStatus.muted.includes(board) })
+          }
+        }
+        break
+      }
+      case 'boardOpened':
+        if (msg.board !== this.wantedBoard) break
+        this.openBoard = { board: msg.board, joined: msg.joined, lastRead: msg.lastRead, posts: msg.posts, threads: {} }
+        this.emit()
+        break
+      case 'boardThread': {
+        const open = this.openBoard
+        if (!open || open.board !== msg.board || !(msg.post in open.threads)) break
+        this.openBoard = { ...open, threads: { ...open.threads, [msg.post]: msg.comments } }
+        this.emit()
+        break
+      }
+      case 'boardPost': {
+        const open = this.openBoard
+        if (!open || open.board !== msg.board) break
+        this.openBoard = { ...open, posts: [msg.post, ...open.posts.filter((p) => p.id !== msg.post.id)] }
+        this.emit()
+        break
+      }
+      case 'boardComment': {
+        const open = this.openBoard
+        if (!open || open.board !== msg.board) break
+        const post = open.posts.find((p) => p.id === msg.post)
+        // Новий коментар піднімає пост угору — як на сервері.
+        const posts = post
+          ? [{ ...post, comments: msg.comments, lastActivity: msg.comment.id }, ...open.posts.filter((p) => p !== post)]
+          : open.posts
+        const thread = open.threads[msg.post]
+        const threads = thread ? { ...open.threads, [msg.post]: [...thread, msg.comment] } : open.threads
+        this.openBoard = { ...open, posts, threads }
+        this.emit()
+        break
+      }
+      case 'eggSpawn':
+        this.eggs = [...this.eggs.filter((e) => e.id !== msg.egg.id), msg.egg]
+        this.emit()
+        break
+      case 'eggGone':
+        this.eggs = this.eggs.filter((e) => e.id !== msg.id)
+        this.emit()
+        break
+      case 'eggArticle':
+        this.article = { egg: msg.egg, article: msg.article, collected: msg.collected, points: msg.points }
+        this.emit()
+        break
+      case 'eggCollection':
+        this.collection = { items: msg.items, total: msg.total }
+        this.emit()
+        break
       case 'jump':
         // Свій стрибок уже показали при натисканні.
         if (msg.id !== this.selfId) this.dispatch(msg)
@@ -207,6 +397,7 @@ export class GameClient {
           p.id === msg.id ? { ...p, score: msg.score, group: msg.group, color: msg.color, status: msg.status } : p,
         )
         this.emit()
+        if (before && msg.score > before.score) this.dispatch({ type: 'scoreGain', id: msg.id, delta: msg.score - before.score })
         break
       }
       case 'chatHistory':

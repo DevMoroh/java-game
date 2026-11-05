@@ -13,7 +13,10 @@ export function PlayerPanel({ client }: { client: GameClient }) {
     <div className="panel team-panel">
       <div className="panel-row">
         <span className="color-dot" style={{ background: self.color }} title="Your circle color" />
-        <strong>⭐ {self.score}</strong>
+        {/* key — щоб анімація «підстрибнути» запускалась на кожну зміну рахунку */}
+        <strong key={self.score} className="score-bump">
+          ⭐ {self.score}
+        </strong>
         <span className="muted"> points</span>
       </div>
       <StatusPicker client={client} status={self.status} />

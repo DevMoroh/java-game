@@ -29,6 +29,13 @@ cd client && npm install && npm run dev   # http://localhost:5173 (проксі 
 - `{"type":"groupJoin","player":"<id>"}` — приєднатися до чату гравця, у чиєму колі стоїш; `{"type":"groupLeave"}`
 - `{"type":"chat","text":"Привіт!"}` — повідомлення у свій чат: груповий або загальний (до 300 символів; 5 підряд, далі 1/с)
 - `{"type":"status","text":"🎧 Слухаю музику"}` — статус над головою (до 40 символів, `""` — прибрати); зберігається в профілі
+- `{"type":"boardOpen","board":"reviews"}` / `{"type":"boardClose"}` — відкрити скриньку, біля якої стоїш (≤ 2.5 м), / закрити
+- `{"type":"boardSubscribe","board":"reviews","on":true}` — приєднатися до скриньки (лічильник нового над нею) / вийти
+- `{"type":"boardMute","board":"reviews","muted":true}` — вимкнути / увімкнути для себе звук нових повідомлень скриньки
+- `{"type":"boardPost","text":"…"}` — пост у відкриту скриньку (до 1000 символів); `{"type":"boardThread","post":12}` —
+  коментарі до поста; `{"type":"boardComment","post":12,"text":"…"}` — коментар (до 500); пости й коментарі — 5 підряд, далі 1 на 5 с
+- `{"type":"eggOpen","egg":"egg-3"}` — підібрати яйце поруч (≤ 1.8 м); `{"type":"eggKeep"}` / `{"type":"eggDrop"}` —
+  зберегти статтю в колекцію / викинути; `{"type":"eggRead","article":"…"}` — перечитати статтю з колекції
 
 Сервер → клієнт: `welcome` (selfId, token профілю, правила руху, усі гравці), `joined`, `left`,
 `state` (позиції всіх щотік + `lastSeq` — останнє оброблене введення),
@@ -37,7 +44,29 @@ cd client && npm install && npm run dev   # http://localhost:5173 (проксі 
 `jump` (`id`), `handshakeOffer` (`from`, `to`, `expiresInMs`), `handshake` (`from`, `to`, `scored`),
 `playerUpdate` (`id`, `score`, `group`, `color` — колір кола, `status`); тим, хто в цьому чаті, — `chat` (`group` або
 `null` для загального, `from`, `name`, `text`, `at`); гравцю — `chatHistory` (`group`, останні 50) при вході й зміні чату,
-`notice`, `chatError`.
+`notice`, `chatError`. У `welcome` ще `boards` (скриньки) і `eggs` (яйця на полі), у `state` — `animals` (кролики).
+Скриньки: гравцю — `boardStatus` (до яких приєднаний і скільки непрочитаного), `boardOpened`, `boardThread`; тим, хто
+дивиться скриньку, — `boardPost`, `boardComment`. Яйця: усім — `eggSpawn`, `eggGone`; гравцю — `eggArticle`, `eggCollection`.
+
+## Скриньки, золоті яйця й кролики
+
+- **Скриньки** (`community/Boards.java`) стоять на полі; над кожною — коротка назва, усередині — опис, пости й коментарі
+  до них. У «Company reviews» усе анонімно (ім'я не зберігається). Хто приєднався до скриньки (кнопкою або першим
+  постом), бачить над нею ✉️ з кількістю нових записів інших гравців — свою в кожного; відкрив скриньку — прочитано.
+  «Leave» — лічильника більше немає. Нове повідомлення: конверт залітає в щілину, скринька підстрибує, лічильник
+  «бумкає», звучить «дінь-дон» (звук можна вимкнути для себе в кожній скриньці — 🔕, `board_member.muted`, V8 — або одразу в усіх кнопкою зверху по центру, зберігається в браузері);
+  поки є непрочитане — прапорець піднятий і скринька світиться. Дані — `board_entry`, `board_member` (V6).
+- **Золоті яйця** (`community/Eggs.java`): одразу після старту `game.eggs.initial` (2), далі одне на
+  `game.eggs.spawn-interval-seconds` (300), не більше 5 на полі. Відкрив — читаєш статтю (інші яйця вже не бачать):
+  «Save» — у колекцію (`egg_collection`), «Throw away» (або закрити) — яйце лягає поруч і через 2 хв зникає, якщо ніхто
+  не підбере. Колір — `egg_article.color` або за темою (`Articles.TOPIC_COLORS`). Статті беруться з таблиці
+  `egg_article`; поки вона порожня, яйця не з'являються (сервер перевіряє раз на 10 с).
+- **Статті для яєць** пише генератор `deploy/eggs/generate.py` двічі на день (зранку й увечері) — див. «Генератор статей яєць» нижче.
+- **Кролики** (`game/Animals.java`) — 8 штук, симулює сервер: сидять, роззираються, стрибають серіями, тікають від
+  гравців ближче 3 м. Через них можна пройти.
+- **Танцівниця** (`game/Dancer.java`, `client/src/game/Dancer.tsx`, модель `client/public/models/girl.glb` з Meshy) —
+  NPC, якого рухає сервер: гуляє до випадкової точки (далеку іноді перебігає) і там танцює 1–3 цикли; підійшов
+  гравець — зупиняється, обертається до нього й танцює (не частіше, ніж раз на 20 с). У `state` — список `npcs`.
 
 ## Очки, кольори й чати
 
@@ -52,6 +81,41 @@ cd client && npm install && npm run dev   # http://localhost:5173 (проксі 
 - Лишився в групі сам — група розпадається разом з її чатом. Пішов той, чий колір у групи, — група бере колір
   найстаршого з тих, хто лишився.
 - Своїх (одна група) бити не можна: лящ іде найближчому чужому, а якщо поруч лише свої — «Свої!».
+
+## Генератор статей яєць
+
+Формат — як у найпопулярніших постах серії «Tech interview questions» у Threads, але з рубрикою лише з темою (`**Architecture**`):
+коротка (150–400 символів) ситуація з продакшну з цифрами й поворотом «усе працює, але…», симптом і відкрите питання.
+У яйці одразу йде розбір для новачка (з аналогією з життя), 2–4 варіанти рішення і висновок «що сказати на співбесіді».
+Інструкції — `deploy/eggs/prompts/writer.md` (автор) і `reviewer.md` (рецензент за чеклістом).
+
+`generate.py`: бере з закритого API наявні статті → обирає найменш покриту тему → автор (`claude -p`, без інструментів,
+JSON за схемою) пише статтю → механічні перевірки + рецензент → до 3 спроб з зауваженнями → `POST /api/admin/articles`.
+Гра підхоплює нову статтю без перезапуску. Працює через залогінений `claude` (підписка), не через API-ключ.
+
+Закритий API (`admin/AdminArticles.java`): `GET/POST /api/admin/articles`, `GET/PUT /api/admin/articles/{id}`,
+`Authorization: Bearer $GAME_ADMIN_TOKEN`. Назовні закритий (Caddy → 404), застосунок слухає його на 127.0.0.1:8081 VPS.
+
+```bash
+./deploy/eggs/generate.py --dry-run --topic Databases   # локально: GAME_ADMIN_TOKEN=… EGGS_API=http://127.0.0.1:8081
+```
+
+На VPS (один раз) — від окремого користувача `roman` (не `github-runner`, той лише для CI):
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash      # claude у ~/.local/bin, без sudo
+~/.local/bin/claude                                 # /login — вхід через claude.ai (підписка), потім /exit
+# Один токен: застосунку (.env належить deploy) і генератору (свій файл roman, лише для нього)
+TOKEN=$(openssl rand -hex 32)
+sudo -u deploy sh -c "echo GAME_ADMIN_TOKEN=$TOKEN >> /opt/devworld/.env && cd /opt/devworld && docker compose up -d"
+mkdir -p ~/.config/devworld && (umask 077; echo "GAME_ADMIN_TOKEN=$TOKEN" > ~/.config/devworld/eggs.env)
+```
+
+Cron (`crontab -e` від `roman`) — дві статті на день, о 09:15 і 19:15 (за часом VPS):
+
+```cron
+15 9,19 * * * CLAUDE_BIN=$HOME/.local/bin/claude /usr/bin/python3 /opt/devworld/eggs/generate.py --env-file $HOME/.config/devworld/eggs.env >> $HOME/devworld-eggs.log 2>&1
+```
 
 ## Рух і передбачення
 

@@ -83,3 +83,66 @@ export function playPatSound(volume: number) {
     // Аудіо недоступне — грається без звуку.
   }
 }
+
+/** «Дзінь-дзінь» за очки: три ноти вгору (до-мі-соль) і дзвіночок октавою вище — як коротка фанфара. */
+export function playChimeSound(volume: number) {
+  if (volume <= 0.01) return
+  try {
+    ctx ??= new AudioContext()
+    const notes = [
+      { freq: 523.25, at: 0, len: 0.18 },
+      { freq: 659.25, at: 0.09, len: 0.18 },
+      { freq: 783.99, at: 0.18, len: 0.22 },
+      { freq: 1046.5, at: 0.27, len: 0.55 },
+    ]
+    for (const n of notes) {
+      const now = ctx.currentTime + n.at
+      for (const [type, level] of [['triangle', 1], ['sine', 0.5]] as const) {
+        const osc = ctx.createOscillator()
+        osc.type = type
+        // Другий голос трохи вище — «блиск», як у дзвіночка.
+        osc.frequency.value = type === 'sine' ? n.freq * 2 : n.freq
+        const gain = ctx.createGain()
+        gain.gain.setValueAtTime(0, now)
+        gain.gain.linearRampToValueAtTime(volume * 0.35 * level, now + 0.015)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + n.len)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(now)
+        osc.stop(now + n.len + 0.05)
+      }
+    }
+  } catch {
+    // Аудіо недоступне — грається без звуку.
+  }
+}
+
+/** «Дінь-дон» нової пошти: дві м'які ноти вниз з довгим дзвінким згасанням — тихіше й спокійніше за фанфару очок. */
+export function playMailSound(volume: number) {
+  if (volume <= 0.01) return
+  try {
+    ctx ??= new AudioContext()
+    for (const n of [
+      { freq: 1318.5, at: 0 },
+      { freq: 987.77, at: 0.16 },
+    ]) {
+      const now = ctx.currentTime + n.at
+      for (const [mult, level] of [
+        [1, 1],
+        [2.76, 0.25], // негармонійний обертон — «метал» дзвіночка
+      ] as const) {
+        const osc = ctx.createOscillator()
+        osc.type = 'sine'
+        osc.frequency.value = n.freq * mult
+        const gain = ctx.createGain()
+        gain.gain.setValueAtTime(0, now)
+        gain.gain.linearRampToValueAtTime(volume * 0.3 * level, now + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.9)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(now)
+        osc.stop(now + 0.95)
+      }
+    }
+  } catch {
+    // Аудіо недоступне — грається без звуку.
+  }
+}

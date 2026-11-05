@@ -1,11 +1,13 @@
 import type { GameClient } from './GameClient'
-import { playPatSound, playSlapSound, playWhooshSound } from './sound'
+import { messageSoundOn } from './messageSound'
+import { playChimeSound, playMailSound, playPatSound, playSlapSound, playWhooshSound } from './sound'
 
 /** Далі за цю відстань від себе лящ уже не чути. */
 const HEARING_DISTANCE = 25
 
 /**
- * Звуки: ляпас або «вжух» при ухилянні, «плесь-плесь» при рукостисканні.
+ * Звуки: ляпас або «вжух» при ухилянні, «плесь-плесь» при рукостисканні, «дзінь-дзінь» за очки
+ * (свої — гучно, чужі — тихіше).
  * Гучність — за відстанню до себе. Повертає відписку.
  */
 export function subscribeSounds(client: GameClient) {
@@ -25,6 +27,14 @@ export function subscribeSounds(client: GameClient) {
     // Плескаємо в момент, коли руки зійшлися (після підйому руки).
     client.on('handshake', (e) => {
       setTimeout(() => playPatSound(volumeAt(e.from, e.to) * 0.5), 300)
+    }),
+    // Нове в моїй скриньці — якщо я не вимкнув звук цієї скриньки чи всіх повідомлень загалом.
+    client.on('boardNotify', (e) => {
+      if (!e.muted && messageSoundOn()) playMailSound(0.8)
+    }),
+    client.on('scoreGain', (e) => {
+      // Після «плесь» рукостискання, щоб звуки не злипались.
+      setTimeout(() => playChimeSound(e.id === client.selfId ? 0.9 : volumeAt(e.id, e.id) * 0.4), 350)
     }),
   ]
   return () => offs.forEach((off) => off())

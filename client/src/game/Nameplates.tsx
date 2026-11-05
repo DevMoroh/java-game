@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { anchors } from './anchors'
 import type { GameClient } from './GameClient'
 import type { PlayerInfo } from './types'
+import { worldLabels } from './worldLabels'
 
 const LABEL_HEIGHT = 2.3
 
@@ -12,6 +13,10 @@ const labels = new Map<string, HTMLDivElement>()
 
 /** Скільки висить спливаючий напис (має збігатися з анімацією .pop у CSS). */
 const POP_MS = 900
+/** Скільки висить «+1 ⭐» за очки (як анімація .score-pop у CSS). */
+const SCORE_POP_MS = 1800
+/** Зірочки, що розлітаються навколо «+1»: кут і відстань — у CSS-змінних. */
+const SPARKS = Array.from({ length: 10 }, (_, i) => ({ angle: (i / 10) * 360 + (i % 2) * 18, dist: i % 2 ? 60 : 90 }))
 /** Скільки висить бульбашка з повідомленням чату над головою. */
 const BUBBLE_MS = 5000
 const BUBBLE_MAX = 80
@@ -31,6 +36,8 @@ export function Nameplates({ players, client }: { players: PlayerInfo[]; client:
   const [pops, setPops] = useState<Record<string, Pop>>({})
   // id того, хто простягнув руку → коли рука опуститься (Date.now()).
   const [offers, setOffers] = useState<Record<string, number>>({})
+  // id гравця → останнє «+N ⭐» (окремо від pops, щоб не перекривати «🤝»).
+  const [scorePops, setScorePops] = useState<Record<string, { at: number; delta: number }>>({})
   // id гравця → останнє повідомлення чату (бульбашка над головою).
   const [bubbles, setBubbles] = useState<Record<string, { at: number; text: string }>>({})
 
@@ -60,9 +67,14 @@ export function Nameplates({ players, client }: { players: PlayerInfo[]; client:
       }),
       client.on('handshake', (e) => {
         setOffers((o) => withoutKey(withoutKey(o, e.from), e.to))
-        const text = e.scored ? '🤝 +1' : '🤝'
-        showPop(e.from, text, 'shake')
-        showPop(e.to, text, 'shake')
+        // «+1» за рукостискання покаже scoreGain.
+        showPop(e.from, '🤝', 'shake')
+        showPop(e.to, '🤝', 'shake')
+      }),
+      client.on('scoreGain', (e) => {
+        const pop = { at: Date.now() + Math.random(), delta: e.delta }
+        setScorePops((p) => ({ ...p, [e.id]: pop }))
+        setTimeout(() => setScorePops((p) => (p[e.id] === pop ? withoutKey(p, e.id) : p)), SCORE_POP_MS)
       }),
     ]
     return () => offs.forEach((off) => off())
@@ -72,6 +84,7 @@ export function Nameplates({ players, client }: { players: PlayerInfo[]; client:
     <div className="nameplates">
       {players.map((p) => {
         const pop = pops[p.id]
+        const scorePop = scorePops[p.id]
         const bubble = bubbles[p.id]
         return (
           <div
@@ -85,6 +98,20 @@ export function Nameplates({ players, client }: { players: PlayerInfo[]; client:
             {pop && (
               <div key={pop.at} className={`pop ${pop.kind}`}>
                 {pop.text}
+              </div>
+            )}
+            {scorePop && (
+              <div key={scorePop.at} className={p.id === client.selfId ? 'score-pop self' : 'score-pop'}>
+                {SPARKS.map((s, i) => (
+                  <span
+                    key={i}
+                    className="spark"
+                    style={{ '--angle': `${s.angle}deg`, '--dist': `${s.dist}px` } as React.CSSProperties}
+                  >
+                    ★
+                  </span>
+                ))}
+                <span className="score-pop-text">+{scorePop.delta} ⭐</span>
               </div>
             )}
             {bubble && (
@@ -116,13 +143,16 @@ const v = new THREE.Vector3()
 /** Всередині Canvas: щокадру проєктує голови персонажів на екран і рухає підписи. */
 export function NameplateProjector() {
   const { camera, size } = useThree()
-  const place = (el: HTMLDivElement, anchor: THREE.Object3D | undefined, lift: number, anchorY: string) => {
+  const place = (el: HTMLElement, anchor: THREE.Object3D | undefined, lift: number, anchorY: string) => {
     if (!anchor) {
       el.style.display = 'none'
       return
     }
     anchor.getWorldPosition(v)
-    v.setY(v.y + lift).project(camera)
+    project(el, v.setY(v.y + lift), anchorY)
+  }
+  const project = (el: HTMLElement, point: THREE.Vector3, anchorY: string) => {
+    v.copy(point).project(camera)
     if (v.z > 1) {
       el.style.display = 'none'
       return
@@ -134,6 +164,7 @@ export function NameplateProjector() {
   }
   useFrame(() => {
     for (const [id, el] of labels) place(el, anchors.get(id), LABEL_HEIGHT, '-100%')
+    for (const { el, at } of worldLabels.values()) project(el, at, '-100%')
   })
   return null
 }

@@ -26,7 +26,7 @@ class RestartTest {
 
     @BeforeEach
     void clean() {
-        jdbc.sql("truncate chat_message, team_member, team, guest_profile cascade").update();
+        jdbc.sql("truncate chat_message, team_member, team, guest_profile, board_entry, board_member, egg_collection, egg_article cascade").update();
     }
 
     @Test
