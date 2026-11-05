@@ -96,10 +96,10 @@ JSON за схемою) пише статтю → механічні перев�
 Гра підхоплює нову статтю без перезапуску. Працює через залогінений `claude` (підписка), не через API-ключ.
 
 Закритий API (`admin/AdminArticles.java`): `GET/POST /api/admin/articles`, `GET/PUT /api/admin/articles/{id}`,
-`Authorization: Bearer $GAME_ADMIN_TOKEN`. Назовні закритий (Caddy → 404), застосунок слухає його на 127.0.0.1:8081 VPS.
+`Authorization: Bearer $GAME_ADMIN_TOKEN`. Назовні закритий (Caddy → 404), генератор ходить до нього через Caddy на 127.0.0.1:8090 VPS.
 
 ```bash
-./deploy/eggs/generate.py --dry-run --topic Databases   # локально: GAME_ADMIN_TOKEN=… EGGS_API=http://127.0.0.1:8081
+./deploy/eggs/generate.py --dry-run --topic Databases   # локально: GAME_ADMIN_TOKEN=… EGGS_API=http://127.0.0.1:8080
 ```
 
 На VPS (один раз) — від окремого користувача `roman` (не `github-runner`, той лише для CI):
@@ -163,13 +163,23 @@ cd client && npm run build:models   # scripts/build-models.mjs
 
 Сервер видає гостю токен; клієнт тримає його в `sessionStorage` (`client/src/game/session.ts`): після перезавантаження
 одразу заходить тим самим персонажем; кожна вкладка — окремий персонаж. Профіль за токеном береться з пам'яті або з БД.
+Обірвався зв'язок (деплой, збій мережі) — клієнт перепідключається сам (`App.tsx`): спершу за 0.3–0.8 с, далі 2, 4,
+8… с; плашка «Connecting…» — лише якщо обрив довший за секунду, кнопки «Reconnect / Leave» — якщо сервер не повернувся
+за ~1.5 хв.
 
 ## Деплой (GitHub Actions → VPS)
 
 Push у `main` → `.github/workflows/deploy.yml`: тести сервера (Testcontainers) і перевірка/збірка клієнта →
 Docker-образ (`Dockerfile`: клієнт вбудований у Spring Boot) у GitHub Container Registry → по SSH на VPS:
-`docker compose pull && up -d` (`deploy/compose.yaml`: застосунок + PostgreSQL + Caddy з HTTPS від Let's Encrypt)
-→ перевірка `https://DOMAIN/actuator/health`. Pull request'и лише перевіряються.
+деплой без простою (`deploy/compose.yaml`: застосунок + PostgreSQL + Caddy з HTTPS від Let's Encrypt) → перевірка
+`https://DOMAIN/actuator/health`. Pull request'и лише перевіряються.
+
+Без простою: новий контейнер `app` стартує поруч зі старим (`--scale app=2 --no-recreate`); коли його
+`/actuator/health` — `UP`, старий зупиняється (зберігає гравців у БД), і клієнти за частку секунди перепідключаються
+до нового (Caddy повторює невдалі з'єднання — `lb_try_duration`). Новий не піднявся — його прибирають, старий працює
+далі. Caddy перезавантажується лише коли змінився `Caddyfile`. Обмеження: міграції Flyway накочує новий контейнер,
+поки старий ще працює, — тож вони мають бути сумісні зі старим кодом (додавати таблиці й колонки, а не
+перейменовувати чи видаляти); стан у пам'яті (яйця на полі, кролики) починається з нуля, як і раніше.
 
 ### Одноразово на VPS (Ubuntu/Debian)
 

@@ -12,7 +12,7 @@
 Claude тут без жодних інструментів (--tools ""): лише повертає JSON за схемою. До API ходить сам скрипт.
 
 Запуск:  ./generate.py [--dry-run] [--topic Databases] [--env-file /opt/devworld/.env]
-Змінні:  GAME_ADMIN_TOKEN (або з --env-file), EGGS_API (http://127.0.0.1:8081), CLAUDE_BIN (claude),
+Змінні:  GAME_ADMIN_TOKEN (або з --env-file), EGGS_API (http://127.0.0.1:8090), CLAUDE_BIN (claude),
          EGGS_MODEL (opus), EGGS_REVIEW_MODEL (як EGGS_MODEL).
 Claude викликається від залогіненого акаунта CLI (claude.ai); ANTHROPIC_API_KEY з оточення навмисно прибирається.
 """
@@ -203,7 +203,7 @@ def main():
     token = os.environ.get("GAME_ADMIN_TOKEN") or env.get("GAME_ADMIN_TOKEN")
     if not token:
         sys.exit("GAME_ADMIN_TOKEN is not set (env or --env-file)")
-    api = Api(os.environ.get("EGGS_API", "http://127.0.0.1:8081"), token)
+    api = Api(os.environ.get("EGGS_API", "http://127.0.0.1:8090"), token)
     model = os.environ.get("EGGS_MODEL", "opus")
     review_model = os.environ.get("EGGS_REVIEW_MODEL", model)
 

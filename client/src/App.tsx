@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { Game } from './game/Game'
 import { ArticleModal } from './game/ArticleModal'
 import { BoardPanel } from './game/BoardPanel'
@@ -12,6 +12,17 @@ import { PlayerPanel } from './game/PlayerPanel'
 import { onSoundsChange, setSoundsOn, soundsOn } from './game/soundSettings'
 import { clearSession, loadSession, type Session } from './game/session'
 import type { Gender } from './game/types'
+
+/**
+ * Зв'язок обірвався (найчастіше — деплой: старий сервер зупиняється, новий уже працює): перепідключаємось самі,
+ * тим самим персонажем — спершу за 0.3–0.8 с (розкид, щоб усі гравці не прийшли однією хвилею), далі 2, 4, 8, 8… с.
+ * Кнопки «Reconnect / Leave» — лише якщо сервер так і не повернувся (~1.5 хв).
+ */
+const AUTO_RECONNECT_ATTEMPTS = 12
+
+function reconnectDelay(attempt: number) {
+  return attempt === 0 ? 300 + Math.random() * 500 : Math.min(1000 * 2 ** attempt, 8000)
+}
 
 interface JoinRequest {
   name: string
@@ -28,6 +39,8 @@ function initialRequest(): JoinRequest | null {
 export default function App() {
   const [request, setRequest] = useState<JoinRequest | null>(initialRequest)
   const [client, setClient] = useState<GameClient | null>(null)
+  const [gaveUp, setGaveUp] = useState(false)
+  const attempts = useRef(0)
 
   // З'єднання створюємо в ефекті з очищенням: StrictMode викликає ініціалізатори двічі, і зайвий
   // WebSocket лишав би в грі двійника. Тут перший клієнт закривається ще до відкриття сокета.
@@ -41,6 +54,35 @@ export default function App() {
       setClient(null)
     }
   }, [request])
+
+  useEffect(() => {
+    if (!client) return
+    let timer: number | undefined
+    let disposed = false
+    const check = () => {
+      const status = client.getStatus()
+      if (status === 'online') {
+        attempts.current = 0
+        setGaveUp(false)
+      }
+      if (status !== 'closed' || disposed || timer !== undefined) return
+      if (attempts.current >= AUTO_RECONNECT_ATTEMPTS) {
+        setGaveUp(true)
+        return
+      }
+      timer = window.setTimeout(() => {
+        // Новий об'єкт запиту — новий GameClient; сесія з sessionStorage повертає того самого персонажа.
+        setRequest((prev) => initialRequest() ?? (prev && { ...prev }))
+      }, reconnectDelay(attempts.current++))
+    }
+    const off = client.subscribe(check)
+    check()
+    return () => {
+      disposed = true
+      off()
+      window.clearTimeout(timer)
+    }
+  }, [client])
 
   // Для дебагу в консолі: __game.local, __game.positions …
   useEffect(() => {
@@ -56,7 +98,12 @@ export default function App() {
       <Game client={client} />
       <Hud
         client={client}
-        onReconnect={() => setRequest(initialRequest() ?? { ...request })}
+        gaveUp={gaveUp}
+        onReconnect={() => {
+          attempts.current = 0
+          setGaveUp(false)
+          setRequest(initialRequest() ?? { ...request })
+        }}
         onLeave={() => {
           clearSession()
           setRequest(null)
@@ -99,7 +146,17 @@ function JoinScreen({ onJoin }: { onJoin: (name: string, gender: Gender) => void
   )
 }
 
-function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect: () => void; onLeave: () => void }) {
+function Hud({
+  client,
+  gaveUp,
+  onReconnect,
+  onLeave,
+}: {
+  client: GameClient
+  gaveUp: boolean
+  onReconnect: () => void
+  onLeave: () => void
+}) {
   const players = useSyncExternalStore(client.subscribe, client.getPlayers)
   const status = useSyncExternalStore(client.subscribe, client.getStatus)
 
@@ -137,20 +194,15 @@ function Hud({ client, onReconnect, onLeave }: { client: GameClient; onReconnect
           👋 Slap <kbd>F</kbd>
         </ActionButton>
       </div>
-      {status !== 'online' && (
+      {status !== 'online' && !gaveUp && <div className="reconnect-banner">Connecting to the server…</div>}
+      {status !== 'online' && gaveUp && (
         <div className="overlay">
           <div className="join-card">
-            {status === 'connecting' ? (
-              <p>Connecting…</p>
-            ) : (
-              <>
-                <p>Connection to the server was lost</p>
-                <button className="primary" onClick={onReconnect}>
-                  Reconnect
-                </button>
-                <button onClick={onLeave}>Leave</button>
-              </>
-            )}
+            <p>Connection to the server was lost</p>
+            <button className="primary" onClick={onReconnect}>
+              Reconnect
+            </button>
+            <button onClick={onLeave}>Leave</button>
           </div>
         </div>
       )}

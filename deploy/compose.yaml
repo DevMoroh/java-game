@@ -1,5 +1,7 @@
 # Продакшн на VPS: застосунок + PostgreSQL + Caddy (HTTPS від Let's Encrypt, проксі для WebSocket).
 # Лежить у DEPLOY_PATH на сервері; GitHub Actions оновлює цей файл і APP_IMAGE в .env на кожен деплой.
+# Деплой без простою: новий контейнер app стартує поруч зі старим (scale 2), старий зупиняється, коли новий
+# здоровий (див. .github/workflows/deploy.yml). Тому в app немає ні container_name, ні опублікованих портів.
 # Змінні — з .env поруч (див. .env.example).
 services:
   db:
@@ -33,10 +35,7 @@ services:
       GAME_ALLOWED_ORIGINS: https://${DOMAIN:?задай DOMAIN у .env}
       # Токен закритого API статей яєць; порожній — API вимкнений.
       GAME_ADMIN_TOKEN: ${GAME_ADMIN_TOKEN:-}
-    # Назовні не публікуємо: з інтернету до застосунку ходить лише Caddy. Порт на 127.0.0.1 — для генератора
-    # статей яєць на цьому ж сервері (deploy/eggs).
-    ports:
-      - "127.0.0.1:8081:8080"
+    # Назовні не публікуємо: з інтернету до застосунку ходить лише Caddy (і генератор статей — через Caddy, див. нижче).
 
   caddy:
     image: caddy:2
@@ -47,6 +46,8 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+      # Лише для генератора статей яєць на цьому ж сервері (deploy/eggs) — до того застосунку, що зараз працює.
+      - "127.0.0.1:8090:8090"
     environment:
       DOMAIN: ${DOMAIN}
     volumes:

@@ -125,18 +125,49 @@ jobs:
         run: |
           SSH="ssh -i ~/.ssh/id_deploy -p $VPS_PORT $VPS_USER@$VPS_HOST"
           # Конфіги з репозиторію — джерело правди; .env із секретами живе лише на сервері.
-          scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/compose.yaml deploy/Caddyfile "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
+          # Caddyfile — поруч, як .new: перезавантажуємо Caddy лише якщо він справді змінився.
+          scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/compose.yaml "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
+          scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/Caddyfile "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/Caddyfile.new"
           # Генератор статей золотих яєць (запускає cron на сервері, див. README → Золоті яйця).
           $SSH "mkdir -p '$DEPLOY_PATH/eggs/prompts'"
           scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/eggs/generate.py "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/eggs/"
           scp -i ~/.ssh/id_deploy -P "$VPS_PORT" deploy/eggs/prompts/*.md "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/eggs/prompts/"
           echo "$GHCR_TOKEN" | $SSH "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+          # Без простою: новий контейнер app — поруч зі старим; коли він здоровий, старий зупиняється (зберігає
+          # гравців у БД), і клієнти за секунду перепідключаються до нового. Новий не піднявся — прибираємо його,
+          # старий працює далі. Міграції Flyway накочує новий, поки старий ще працює, — тож вони мають бути сумісні
+          # зі старим кодом (додавати, а не перейменовувати / видаляти).
           $SSH "set -e
             cd '$DEPLOY_PATH'
             test -f .env || { echo 'Немає $DEPLOY_PATH/.env — створи з deploy/.env.example'; exit 1; }
             sed -i '/^APP_IMAGE=/d' .env && echo 'APP_IMAGE=$IMAGE' >> .env
-            docker compose pull
-            docker compose up -d --remove-orphans
+            docker compose pull app
+            caddy_changed=0
+            if ! cmp -s Caddyfile.new Caddyfile 2>/dev/null; then cat Caddyfile.new > Caddyfile; caddy_changed=1; fi
+            rm -f Caddyfile.new
+            # db і caddy — без перезапуску app (caddy перестворюється лише якщо змінився його опис у compose).
+            docker compose up -d --no-deps db caddy
+            [ \$caddy_changed = 1 ] && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+            old=\$(docker compose ps -q app)
+            if [ -z \"\$old\" ]; then
+              docker compose up -d --no-deps app
+            else
+              docker compose up -d --no-deps --no-recreate --scale app=2 app
+              new=\$(docker compose ps -q app | grep -v -F \"\$old\")
+              ip=\$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \$new)
+              healthy=0
+              for i in \$(seq 1 60); do
+                if docker compose exec -T caddy wget -qO- http://\$ip:8080/actuator/health 2>/dev/null | grep -q UP; then healthy=1; break; fi
+                sleep 2
+              done
+              if [ \$healthy = 0 ]; then
+                echo 'Новий контейнер не став здоровим — лишаємо старий'; docker logs --tail 80 \$new || true
+                docker rm -f \$new; exit 1
+              fi
+              docker stop -t 30 \$old && docker rm \$old
+              docker compose up -d --no-deps --no-recreate --scale app=1 app
+            fi
+            docker compose up -d --remove-orphans --no-deps --no-recreate db caddy app
             docker image prune -f
             docker logout ghcr.io"
 
