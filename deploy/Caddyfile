@@ -2,6 +2,18 @@
 {$DOMAIN} {
 	encode zstd gzip
 
+	# Заголовки безпеки. CSP: усе лише з нашого домену; wasm-unsafe-eval — декодер meshopt для моделей (WebAssembly),
+	# blob:/data: — текстури, які GLTFLoader дістає з .glb; wss — WebSocket гри.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss://{$DOMAIN} blob: data:; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
 	# Файли з хешем у назві (Vite) не змінюються — хай браузер кешує надовго.
 	header /assets/* Cache-Control "public, max-age=31536000, immutable"
 

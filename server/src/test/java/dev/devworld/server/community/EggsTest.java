@@ -203,6 +203,49 @@ class EggsTest {
         assertThat(eggs.snapshot("z").getFirst().id()).isNotIn(onField);
     }
 
+    @Test
+    void reconnectingPlayerGetsTheHeldEggBack() {
+        articles(3);
+        var eggs = eggs(1);
+        eggs.connect("p", "t");
+        eggs.connect("q", "tq");
+        var egg = eggs.snapshot("p").getFirst();
+        eggs.open("p", "t", egg.id(), egg.x(), egg.z());
+
+        assertThat(eggs.disconnect("p", 5, 5)).isEmpty();
+        assertThat(eggs.snapshot("q")).extracting(Eggs.EggView::id).doesNotContain(egg.id());
+        var back = eggs.connect("p2", "t");
+
+        assertThat(back).filteredOn(e -> e.message() instanceof EggArticle).singleElement().satisfies(e -> {
+            assertThat(e.to()).isEqualTo("p2");
+            assertThat(((EggArticle) e.message()).egg()).isEqualTo(egg.id());
+            assertThat(((EggArticle) e.message()).points()).isZero();
+        });
+        assertThat(eggs.keep("p2", "t")).singleElement().extracting(Envelope::message).isInstanceOf(EggCollection.class);
+    }
+
+    @Test
+    void heldEggFallsWhereThePlayerStoodIfTheyDoNotComeBack() {
+        articles(3);
+        var eggs = eggs(1);
+        eggs.connect("p", "t");
+        eggs.connect("q", "tq");
+        var egg = eggs.snapshot("p").getFirst();
+        eggs.open("p", "t", egg.id(), egg.x(), egg.z());
+        eggs.disconnect("p", 5, 5);
+
+        clock.addAndGet(Eggs.HELD_GRACE_NANOS - SECOND);
+        assertThat(eggs.tick()).isEmpty();
+        clock.addAndGet(SECOND);
+        var out = eggs.tick();
+
+        var view = out.stream().map(Envelope::message).filter(EggSpawned.class::isInstance).map(m -> ((EggSpawned) m).egg())
+                .filter(v -> v.id().equals(egg.id())).findFirst().orElseThrow();
+        assertThat(view.dropped()).isTrue();
+        assertThat(Math.hypot(view.x() - 5, view.z() - 5)).isLessThan(1);
+        assertThat(eggs.connect("p2", "t")).noneMatch(e -> e.message() instanceof EggArticle);
+    }
+
     private static int points(List<Envelope> out) {
         return out.stream().mapToInt(e -> e.message() instanceof EggArticle a ? a.points() : 0).sum();
     }

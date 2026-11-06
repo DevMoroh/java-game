@@ -38,6 +38,11 @@ public class Eggs {
     public static final double PICK_RANGE = 1.8;
     static final double PICK_TOLERANCE = 1.5;
     static final long DROPPED_TTL_NANOS = 120_000_000_000L;
+    /**
+     * Скільки яйце в руках чекає на гравця, що відключився: перепідключення (деплой, фонова вкладка) поверне йому і яйце,
+     * і відкриту статтю. Не повернувся — яйце падає там, де він стояв.
+     */
+    static final long HELD_GRACE_NANOS = 120_000_000_000L;
     /** Яйця не з'являються біля скриньок і самого краю поля. */
     private static final double BOARD_CLEARANCE = 3;
     private static final double SPAWN_LIMIT = GameWorld.BOUNDARY - 3;
@@ -86,6 +91,11 @@ public class Eggs {
         String heldBy;
         /** Коли зникне викинуте яйце (null — лежить, доки не підберуть). */
         Long expiresAtNanos;
+        /** Той, хто тримає яйце, відключився: профіль, місце й до коли чекаємо його повернення. */
+        String awaitedToken;
+        double awaitedX;
+        double awaitedZ;
+        long awaitedUntilNanos;
 
         Egg(String id, Article article, double x, double z) {
             this.id = id;
@@ -140,6 +150,15 @@ public class Eggs {
     public synchronized List<Envelope> connect(String playerId, String token) {
         visitors.put(playerId, new Visitor(token, store.seen(token)));
         var out = new ArrayList<Envelope>();
+        // Повернувся з яйцем, яке тримав до розриву, — віддаємо його назад разом зі статтею.
+        var awaited = eggs.values().stream().filter(e -> token.equals(e.awaitedToken)).findFirst().orElse(null);
+        if (awaited != null) {
+            awaited.heldBy = playerId;
+            awaited.awaitedToken = null;
+            boolean collected = store.collection(token).stream().anyMatch(c -> c.articleId().equals(awaited.article.id()));
+            var article = articles.find(awaited.article.id()).orElse(awaited.article);
+            out.add(new Envelope(playerId, new EggArticle(awaited.id, article, collected, 0)));
+        }
         long visible = eggs.values().stream().filter(e -> visibleTo(e, playerId)).count();
         for (long i = visible; i < initial; i++) {
             var egg = spawn(playerId);
@@ -166,6 +185,13 @@ public class Eggs {
         for (var egg : expired) {
             eggs.remove(egg.id);
             out.add(Envelope.everyone(new EggGone(egg.id)));
+        }
+        var abandoned = eggs.values().stream()
+                .filter(e -> e.awaitedToken != null && now - e.awaitedUntilNanos >= 0)
+                .toList();
+        for (var egg : abandoned) {
+            egg.awaitedToken = null;
+            out.addAll(drop(egg.heldBy, egg.awaitedX, egg.awaitedZ));
         }
         if (now - nextSpawnNanos >= 0) {
             nextSpawnNanos = now + spawnIntervalNanos;
@@ -235,11 +261,18 @@ public class Eggs {
         return announce(egg, null);
     }
 
-    /** Гравець вийшов; якщо з яйцем у руках — воно падає там, де він стояв. */
+    /** Гравець вийшов; якщо з яйцем у руках — воно чекає на його повернення {@link #HELD_GRACE_NANOS}. */
     public synchronized List<Envelope> disconnect(String playerId, double x, double z) {
-        var out = drop(playerId, x, z);
-        visitors.remove(playerId);
-        return out;
+        var visitor = visitors.remove(playerId);
+        var egg = held(playerId);
+        if (egg != null && visitor != null) {
+            egg.awaitedToken = visitor.token();
+            egg.awaitedX = x;
+            egg.awaitedZ = z;
+            egg.awaitedUntilNanos = nanos.getAsLong() + HELD_GRACE_NANOS;
+            return List.of();
+        }
+        return drop(playerId, x, z);
     }
 
     /** Колекція гравця (при вході й після збереження). */

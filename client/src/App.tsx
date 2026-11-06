@@ -20,6 +20,13 @@ import type { Gender } from './game/types'
  */
 const AUTO_RECONNECT_ATTEMPTS = 12
 
+/**
+ * Фонову вкладку браузер пригальмовує або «заморожує», а сервер далі шле стан 20 разів на секунду — повідомлення
+ * чекають у мережевих буферах. Після повернення клієнт програвав би цю чергу: кролики стрибають на місці, а потім
+ * мчать. Тож якщо вкладки довго не було видно, перепідключаємось — і одразу отримуємо свіжий стан світу.
+ */
+const RESYNC_AFTER_HIDDEN_MS = 30_000
+
 function reconnectDelay(attempt: number) {
   return attempt === 0 ? 300 + Math.random() * 500 : Math.min(1000 * 2 ** attempt, 8000)
 }
@@ -77,9 +84,25 @@ export default function App() {
     }
     const off = client.subscribe(check)
     check()
+
+    let hiddenAt = document.hidden ? performance.now() : null
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenAt = performance.now()
+        return
+      }
+      const away = hiddenAt === null ? 0 : performance.now() - hiddenAt
+      hiddenAt = null
+      // Яйце в руках сервер притримує, доки повернемось, — тож і відкрита стаття з яйця не пропаде.
+      if (away > RESYNC_AFTER_HIDDEN_MS && client.getStatus() === 'online') {
+        client.close() // далі — звичайне автоперепідключення тим самим персонажем
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       disposed = true
       off()
+      document.removeEventListener('visibilitychange', onVisibility)
       window.clearTimeout(timer)
     }
   }, [client])
